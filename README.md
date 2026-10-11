@@ -1,9 +1,10 @@
-# 🤖 MT5 TradingView AI Agent
+# 📈 Riffmax-TradingBot-AI-RiffEx
 
-> **MetaTrader 5 ↔ TradingView bridge powered by AI** — live signal ingestion, intelligent order execution, and real-time risk management for automated forex/crypto trading.
+> **Autonomous AI Trading Agent powered by Python and MetaTrader 5 (MT5) MCP** — real-time market structure analysis, automated signal generation, intelligent order execution, and strict risk guardrails.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
-[![MQL5](https://img.shields.io/badge/MQL5-MetaTrader5-green)](https://www.mql5.com/)
+[![MetaTrader 5](https://img.shields.io/badge/MetaTrader-5-green)](https://www.mql5.com/)
+[![MCP Protocol](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-orange)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status: Active](https://img.shields.io/badge/Status-Active-brightgreen)]()
 
@@ -11,55 +12,50 @@
 
 ## 📌 What it does
 
-This project bridges **TradingView Pine Script alerts** to **MetaTrader 5 (MT5)** execution using a Python AI agent that:
+**Riffmax-TradingBot-AI-RiffEx** is an autonomous trading agent that operates directly on **MetaTrader 5 (MT5)** using Python and the **Model Context Protocol (MCP)**:
 
-- 📡 **Receives webhooks** from TradingView alerts via a Flask server
-- 🧠 **Applies AI signal filtering** — classifies signals as high/low confidence before executing
-- ⚡ **Places market/pending orders** on MT5 programmatically using the `MetaTrader5` Python library
-- 🛡️ **Manages risk** — auto-calculates lot sizes, enforces stop-loss/take-profit rules
-- 📊 **Logs all trades** to JSON + CSV for post-trade analysis
+- 📊 **Real-Time Market Analysis** — Ingests live tick data, OHLCV candles, order books, and open positions directly through MT5 MCP tools.
+- 🧠 **AI Decision Engine** — Analyzes price action, market liquidity, and volatility metrics using Python-based quantitative models and LLM agent reasoning.
+- ⚡ **Direct Order Execution** — Places, tracks, modifies, and closes market and pending orders programmatically via the MT5 MCP interface.
+- 🛡️ **Autonomous Risk Guardrails** — Enforces dynamic lot sizing based on account equity, automatic stop-loss (SL), take-profit (TP), maximum drawdown thresholds, and spread filtering.
+- 📝 **Structured Logging & Auditing** — Records all signal evaluations, execution payloads, and deal receipts in JSON/CSV audit trails.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-TradingView Alert
-      │  (HTTP webhook / POST)
-      ▼
-┌─────────────────────┐
-│  Flask Webhook Server│  ← agent/webhook_server.py
-└────────┬────────────┘
-         │  parsed signal JSON
-         ▼
-┌─────────────────────┐
-│  AI Signal Filter   │  ← agent/signal_classifier.py
-│  (confidence score) │
-└────────┬────────────┘
-         │  approved signal
-         ▼
-┌─────────────────────┐
-│  MT5 Order Executor │  ← agent/mt5_executor.py
-│  + Risk Manager     │
-└────────┬────────────┘
-         │
-┌─────────────────────┐
-│  Trade Logger       │  ← logs/trades.json
-└─────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│             AI Agent Decision Layer (Python)           │
+│   • Technical Analysis  • Price Action  • Volatility   │
+└───────────────────────────┬────────────────────────────┘
+                            │
+               Model Context Protocol (MCP)
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│                    MT5 MCP Server                      │
+│   • get_candles_latest   • get_account_info            │
+│   • place_market_order   • modify_position             │
+└───────────────────────────┬────────────────────────────┘
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│               MetaTrader 5 (MT5) Terminal              │
+│       Broker Execution · Live Market Liquidity         │
+└────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 🛠️ Stack
 
-| Layer | Technology |
-|---|---|
-| Signal source | TradingView Pine Script + Alerts |
-| Signal receiver | Python / Flask |
-| AI filtering | scikit-learn / rule-based classifier |
-| MT5 execution | `MetaTrader5` Python API |
-| Logging | JSON + CSV |
-| Config | `.env` + `config.yaml` |
+| Component | Technology | Description |
+|---|---|---|
+| **Language** | Python 3.10+ | Core trading engine and quantitative analysis |
+| **Execution Protocol** | MT5 Model Context Protocol (MCP) | Tool-based interface for market data & order dispatch |
+| **Broker Platform** | MetaTrader 5 (MT5) | Multi-asset execution terminal (Forex, Indices, Crypto) |
+| **Data Processing** | NumPy, Pandas | Candle parsing, moving averages, volatility metrics |
+| **Risk Management** | Custom Python Engine | Lot sizing, trailing stops, daily loss limits |
+| **Configuration** | `.env` + `config.yaml` | Secure credential isolation |
 
 ---
 
@@ -67,48 +63,37 @@ TradingView Alert
 
 ### Prerequisites
 - Python 3.10+
-- MetaTrader 5 terminal installed
-- TradingView Pro+ account (for webhook alerts)
+- MetaTrader 5 terminal installed and logged into your broker account
+- MT5 MCP server configured
 
-### 1. Clone & install
+### 1. Clone & Install
 
 ```bash
-git clone https://github.com/Riffmax2030-hub/mt5-tradingview-ai-agent.git
-cd mt5-tradingview-ai-agent
+git clone https://github.com/Riffmax2030-hub/Riffmax-TradingBot-AI-RiffEx.git
+cd Riffmax-TradingBot-AI-RiffEx
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment
+### 2. Configure Environment
 
 ```bash
 cp .env.example .env
-# Fill in your MT5 credentials in .env — NEVER commit this file
+# Edit .env with your credentials — NEVER commit real .env files
 ```
 
-`.env.example` template (safe to commit):
+`.env.example` template:
 ```env
-MT5_LOGIN=your_account_number
-MT5_SERVER=your_broker_server
+MT5_ACCOUNT=your_account_number
 MT5_PASSWORD=your_password
-WEBHOOK_SECRET=random_secret_key
-NGROK_AUTHTOKEN=your_ngrok_token
+MT5_SERVER=your_broker_server
+MAX_RISK_PER_TRADE_PERCENT=1.0
+MAX_DAILY_DRAWDOWN_PERCENT=3.0
 ```
 
-### 3. Run the agent
+### 3. Run the Trading Agent
 
 ```bash
-python agent/webhook_server.py
-```
-
-### 4. TradingView webhook payload
-
-```json
-{
-  "symbol": "{{ticker}}",
-  "action": "{{strategy.order.action}}",
-  "price": {{close}},
-  "timeframe": "{{interval}}"
-}
+python main.py
 ```
 
 ---
@@ -116,45 +101,33 @@ python agent/webhook_server.py
 ## 📁 Project Structure
 
 ```
-mt5-tradingview-ai-agent/
+Riffmax-TradingBot-AI-RiffEx/
 ├── agent/
-│   ├── webhook_server.py      # Flask server — receives TradingView alerts
-│   ├── signal_classifier.py   # AI confidence filter
-│   ├── mt5_executor.py        # MT5 order placement
-│   └── risk_manager.py        # Lot size & SL/TP calculator
-├── logs/                      # Trade logs (gitignored)
+│   ├── market_analyzer.py    # Price action & indicator analysis
+│   ├── decision_engine.py    # Signal generation logic
+│   ├── mcp_bridge.py         # MT5 Model Context Protocol interface
+│   └── risk_guard.py         # Dynamic lot sizing & risk limits
 ├── config/
-│   └── config.yaml            # Symbol settings, risk params
+│   └── config.yaml           # Symbol lists, timeframe, max spread
+├── logs/                     # Trade logs & audit trails (gitignored)
 ├── tests/
-│   ├── test_signal_classifier.py
-│   └── test_risk_manager.py
-├── .env.example               # Safe template — commit this
-├── .gitignore                 # Excludes .env, logs, __pycache__
+│   ├── test_market_analyzer.py
+│   └── test_risk_guard.py
+├── .env.example              # Template with placeholders
+├── .gitignore                # Excludes credentials, logs, caches
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## 🔐 Security
+## 🔐 Security & Risk Disclaimer
 
 > [!CAUTION]
-> **Never commit MT5 credentials, API keys, or tokens.**
-> All secrets load from `.env` via `python-dotenv`. The `.env` file is listed in `.gitignore`.
-
-Audit for leaked secrets:
-```bash
-git log --all --full-history -- "*.env"
-git grep -i "password\|secret\|login" $(git rev-list --all)
-```
-
----
-
-## 🧪 Tests
-
-```bash
-pytest tests/ -v
-```
+> **Financial & Credential Security:**
+> - Never hardcode broker account numbers, server details, or passwords in code or commits.
+> - All sensitive configurations are loaded strictly via environment variables.
+> - Trading financial markets carries risk. Use a demo account for testing before any live deployment.
 
 ---
 

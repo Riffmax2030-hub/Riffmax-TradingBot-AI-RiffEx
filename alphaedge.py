@@ -1913,7 +1913,10 @@ if __name__ == "__main__":
             # full daily performance & market analysis before the close.
             now = datetime.now()
             today_date = now.date()
-            if now.hour == 20 and 44 <= now.minute <= 49:
+            # Suppress on weekends (Saturday=5, Sunday=6) when markets are closed
+            if now.weekday() in (5, 6):
+                pass
+            elif now.hour == 20 and 44 <= now.minute <= 49:
                 eod_key = today_date.strftime("EOD_%Y-%m-%d")
                 if not getattr(process_telegram_commands, "_eod_sent", None) or process_telegram_commands._eod_sent != eod_key:
                     process_telegram_commands._eod_sent = eod_key
@@ -1971,7 +1974,10 @@ if __name__ == "__main__":
                         logger.error(f"[Scalp] EOD report error: {eod_err}")
 
             # Daily & Weekly Reporting (Runs at 23:50 UTC)
-            if now.hour == 23 and now.minute >= 50:
+            # Suppress daily reports on weekends (Saturday=5, Sunday=6)
+            if now.weekday() in (5, 6):
+                pass
+            elif now.hour == 23 and now.minute >= 50:
                 if last_daily_report_date != today_date:
                     try:
                         start_time = datetime(now.year, now.month, now.day)

@@ -1,22 +1,22 @@
 {
     "gold_tp_dollars": 100.0,
     "gold_tp_catalyst_dollars": 120.0,
-    "gold_be_trigger_dollars": 20.0,
+    "gold_be_trigger_dollars": 15.0,
     "gold_lock_trigger_dollars": 35.0,
     "gold_lock_amount_dollars": 25.0,
     "gold_lock2_trigger_dollars": 60.0,
     "gold_lock2_amount_dollars": 45.0,
     "regime": "BALANCED_INSTITUTIONAL_SWING",
-    "volatility_regime": "NORMAL",
-    "atr_ratio": 0.93,
-    "win_rate": 57.6,
-    "total_trades": 229,
-    "net_pnl": -187.31,
+    "volatility_regime": "COMPRESSION",
+    "atr_ratio": 0.65,
+    "win_rate": 57.5,
+    "total_trades": 233,
+    "net_pnl": -269.76,
     "symbols_config": {
         "XAUUSDm": {
             "tp_dollars": 100.0,
             "tp_catalyst_dollars": 120.0,
-            "be_trigger_dollars": 20.0,
+            "be_trigger_dollars": 15.0,
             "lock_trigger_dollars": 35.0,
             "lock_amount_dollars": 25.0,
             "lock2_trigger_dollars": 60.0,
@@ -26,7 +26,7 @@
         "USOILm": {
             "tp_dollars": 100.0,
             "tp_catalyst_dollars": 120.0,
-            "be_trigger_dollars": 20.0,
+            "be_trigger_dollars": 15.0,
             "lock_trigger_dollars": 35.0,
             "lock_amount_dollars": 25.0,
             "lock2_trigger_dollars": 60.0,
@@ -36,7 +36,7 @@
         "US30m": {
             "tp_dollars": 100.0,
             "tp_catalyst_dollars": 120.0,
-            "be_trigger_dollars": 20.0,
+            "be_trigger_dollars": 15.0,
             "lock_trigger_dollars": 35.0,
             "lock_amount_dollars": 25.0,
             "lock2_trigger_dollars": 60.0,
@@ -44,5 +44,5 @@
             "max_sl_dollars": 36.0
         }
     },
-    "last_updated": "2026-11-04 19:06:38"
+    "last_updated": "2026-11-08 23:30:40"
 }

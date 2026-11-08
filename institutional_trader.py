@@ -420,11 +420,11 @@ def is_session_active(symbol=None):
     if weekday in (5, 6):
         return False
 
-    # Option B: Monday is strictly Observation & Structural Memory mode (No new live executions)
-    if weekday == 0:
+    # 3-Day Institutional Window: Monday (0) and Friday (4) are strictly Observation & Structural Memory mode
+    if weekday in (0, 4):
         return False
 
-    # Tuesday to Friday: strictly 5:00 AM to 11:00 PM EAT (05:00 <= hour < 23:00)
+    # Tuesday to Thursday: strictly 5:00 AM to 11:00 PM EAT (05:00 <= hour < 23:00)
     if hour_eat < 5 or hour_eat >= 23:
         return False
 
@@ -597,26 +597,76 @@ def manage_open_positions(symbol, cfg, catalyst_state):
                 _send_telegram(msg)
 
                 
-        # 3. Pre-News Profit Protection
-        if catalyst_state.get('state') == 'PRE_NEWS_FREEZE' and dollar_gain > 1.0 and not is_be_active and not is_lock_active:
-            new_sl = entry_price + (10 * point) if pos_type == "BUY" else entry_price - (10 * point)
-            modify_sl(ticket, symbol, new_sl, current_tp)
-            ACTIVE_BE_TRACKED[ticket] = True
-            update_trade_be(ticket)
-            msg = (
-                f"⚠️ <b>[Pre-News Protection]</b>\n"
-                f"Asset: <b>{symbol}</b> (#{ticket})\n"
-                f"Event: <b>{catalyst_state.get('event')}</b> in {catalyst_state.get('minutes_to_release')}m\n"
-                f"SL tightened to entry to protect profit before release."
-            )
-            logger.info(f"[{symbol}] Pre-news protection activated on #{ticket}")
-            _send_telegram(msg)
+        # 3. Pre-News Profit & Capital Protection
+        if catalyst_state.get('state') == 'PRE_NEWS_FREEZE':
+            is_tier1 = catalyst_state.get('tier') == 'TIER_1_MONSTER'
+            ev_name = catalyst_state.get('event', 'High-Impact News')
+            mins_left = catalyst_state.get('minutes_to_release', 5)
+
+            if dollar_gain > 1.0 and not is_be_active and not is_lock_active:
+                new_sl = entry_price + (10 * point) if pos_type == "BUY" else entry_price - (10 * point)
+                modify_sl(ticket, symbol, new_sl, current_tp)
+                ACTIVE_BE_TRACKED[ticket] = True
+                update_trade_be(ticket)
+                msg = (
+                    f"⚠️ <b>[Pre-News Protection]</b>\n"
+                    f"Asset: <b>{symbol}</b> (#{ticket})\n"
+                    f"Event: <b>{ev_name}</b> in {mins_left}m\n"
+                    f"SL tightened to entry to protect profit before release."
+                )
+                logger.info(f"[{symbol}] Pre-news protection activated on #{ticket}")
+                _send_telegram(msg)
+            elif dollar_gain <= 0 and is_tier1:
+                # TIER-1 EMERGENCY FLATTEN: Close floating losers before monster news (NFP, CPI, FOMC)
+                logger.warning(
+                    f"[{symbol}] TIER-1 PRE-NEWS EMERGENCY FLATTEN on #{ticket}! "
+                    f"Event: {ev_name} in {mins_left}m | Floating PnL: ${dollar_gain:.2f}"
+                )
+                if close_market_position(ticket, symbol, pos_type, pos.volume):
+                    msg = (
+                        f"🚨 <b>[Pre-News Emergency Close]</b>\n"
+                        f"Asset: <b>{symbol}</b> (#{ticket})\n"
+                        f"Event: <b>{ev_name} (Tier-1)</b> in {mins_left}m\n"
+                        f"Action: Position closed at market (${dollar_gain:+.2f}).\n"
+                        f"Capital protected from catastrophic news gap slippage!"
+                    )
+                    _send_telegram(msg)
 
 
 def _sym_digits(symbol):
     """Returns the number of decimal places for price rounding for a given symbol."""
     info = mt5.symbol_info(symbol)
     return info.digits if info else 2
+
+
+def close_market_position(ticket, symbol, pos_type, volume):
+    """Closes an open position immediately at market price."""
+    dp = _sym_digits(symbol)
+    tick = mt5.symbol_info_tick(symbol)
+    if not tick:
+        return False
+    o_type = mt5.ORDER_TYPE_SELL if pos_type == "BUY" else mt5.ORDER_TYPE_BUY
+    price = tick.bid if pos_type == "BUY" else tick.ask
+    req = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "position": ticket,
+        "symbol": symbol,
+        "volume": float(volume),
+        "type": o_type,
+        "price": price,
+        "deviation": 30,
+        "magic": 20250831,
+        "comment": "PRE_NEWS_EMERGENCY_CLOSE",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    res = mt5.order_send(req)
+    if res.retcode == mt5.TRADE_RETCODE_DONE:
+        logger.info(f"[{symbol}] PRE-NEWS EMERGENCY FLATTEN #{ticket} @ {price:.{dp}f} | PnL protected")
+        return True
+    else:
+        logger.warning(f"[{symbol}] Emergency close failed #{ticket}: {res.comment}")
+        return False
 
 
 def modify_sl(ticket, symbol, new_sl, tp):

@@ -70,7 +70,7 @@ def sim_session(weekday, hour_eat):
     he = now_eat.hour
     if wd in (5, 6):
         return False
-    if wd == 0:  # Option B: Monday is strictly Observation & Structural Memory
+    if wd in (0, 4):  # Monday & Friday are strictly Observation & Structural Memory
         return False
     if he < 5 or he >= 23:
         return False
@@ -89,7 +89,8 @@ tests = [
     (1, 8,  "Tue 08:00 EAT (active trade)", True),
     (1, 12, "Tue 12:00 EAT (midday)     ", True),
     (3, 14, "Thu 14:00 EAT (active trade)", True),
-    (4, 22, "Fri 22:00 EAT (evening open)", True),
+    (4, 12, "Fri 12:00 EAT (observation)", False),
+    (4, 22, "Fri 22:00 EAT (observation)", False),
     (4, 23, "Fri 23:00 EAT (cutoff)     ", False),
     (5, 12, "Sat 12:00 EAT (weekend)    ", False),
     (6, 12, "Sun 12:00 EAT (weekend)    ", False),

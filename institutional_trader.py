@@ -424,8 +424,8 @@ def is_session_active(symbol=None):
     if weekday in (0, 4):
         return False
 
-    # Tuesday to Thursday: strictly 5:00 AM to 11:00 PM EAT (05:00 <= hour < 23:00)
-    if hour_eat < 5 or hour_eat >= 23:
+    # Tuesday to Thursday: strictly 3:00 AM to 11:00 PM EAT (03:00 <= hour < 23:00)
+    if hour_eat < 3 or hour_eat >= 23:
         return False
 
     return True
@@ -1002,7 +1002,7 @@ def run_institutional_cycle():
             # The bot always knows the market structure even during off-hours.
             STRUCT_MEMORY.update_structure(symbol)
             struct_ctx = STRUCT_MEMORY.get_context(symbol)
-            logger.info(
+            logger.debug(
                 f"[StructuralMemory] {symbol} | Regime: {struct_ctx.get('regime')} | "
                 f"PWH: {struct_ctx.get('pwh')} / PWL: {struct_ctx.get('pwl')} | "
                 f"PDH: {struct_ctx.get('pdh')} / PDL: {struct_ctx.get('pdl')} | "
@@ -1027,14 +1027,14 @@ def run_institutional_cycle():
             has_pos = len(positions) > 0 if positions else False
 
             sym_session_ok = is_session_active(symbol)
-            session_tag = "ACTIVE (5am-11pm EAT)" if sym_session_ok else "CLOSED (11pm-5am Window Gate)"
-            ut_tag = f" | UT: {setup.get('ut_bot', 'NONE')}" if setup.get('ut_bot') else ""
+            session_tag = "ACTIVE (3am-11pm EAT)" if sym_session_ok else "OBSERVATION (Mon/Fri/Night)"
+            state_str = f"POS({len(positions)})" if has_pos else (f"SETUP({setup.get('direction')})" if setup.get('valid') else "WAIT")
+
             logger.info(
-                f"[Institutional MTF] {symbol} | Price: {curr_price:.2f} | Range: {loc_pct} | "
-                f"Vol: {whale_str} | Pos: {len(positions) if positions else 0}{ut_tag} | "
-                f"Session: {session_tag} | "
-                f"Setup: {setup.get('direction')} (Valid: {setup.get('valid')}) | {setup.get('reason')}"
+                f"[Scanner] {symbol:<7} {curr_price:>8.2f} | Range: {loc_pct:>6} | Vol: {whale_str:>10} | {state_str:<8} | {session_tag}"
             )
+            if setup.get('valid') or setup.get('whale_detected'):
+                logger.info(f"   ⚡ [{symbol}] {setup.get('direction')} Signal Ready: {setup.get('reason')} | UT: {setup.get('ut_bot', 'NONE')}")
 
             positions = mt5.positions_get(symbol=symbol)
             has_pos = len(positions) > 0 if positions else False

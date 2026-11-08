@@ -303,11 +303,9 @@ class AutoLearner:
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
+        # Only send Telegram update when the core institutional regime genuinely changes
         has_changed = (
-            old_config.get("regime") != new_config["regime"] or
-            old_config.get("gold_tp_dollars") != new_config["gold_tp_dollars"] or
-            old_config.get("gold_be_trigger_dollars") != new_config["gold_be_trigger_dollars"] or
-            old_config.get("volatility_regime") != new_config.get("volatility_regime")
+            old_config.get("regime") != new_config["regime"]
         )
 
         self.save_config(new_config)

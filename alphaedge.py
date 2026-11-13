@@ -1826,31 +1826,31 @@ def process_tv_signals():
 if __name__ == "__main__":
 
     logger.info("=" * 65)
-    logger.info("  ALPHAEDGE — INSTITUTIONAL MTF WHALE FLOW SWING ENGINE")
+    logger.info("  ALPHAEDGE — PURE PRICE ACTION 3-TF INSTITUTIONAL SWING ENGINE")
     logger.info("  Live Assets: Gold (XAUUSDm) | Crude Oil (USOILm) | Dow Jones (US30m)")
-    logger.info("  Strategy: H4 Dealing Range | M15 Institutional UT Flow | Micro Liquidity Sweeps")
-    logger.info("  Gold:   0.02 lot | TP: $100.00 | Max SL: $36.00 (18 pts)  | BE: +$20 | Lock1: $35->$25 | Lock2: $60->$45")
-    logger.info("  Oil:    0.05 lot | TP: $100.00 | Max SL: $35.00 ($0.70)   | BE: +$20 | Lock1: $35->$25 | Lock2: $60->$45")
-    logger.info("  US30:   0.25 lot | TP: $100.00 | Max SL: $36.00 (144 pts) | BE: +$20 | Lock1: $35->$25 | Lock2: $60->$45")
-    logger.info("  Session: Tuesday - Friday, 5:00 AM - 11:00 PM EAT (Monday = Observation Only) | Overnight Gate")
-    logger.info("  Guidance: ForexFactory Real-Time Macro News Engine (USD)")
+    logger.info("  Strategy: H4 Fractal Structure + 75%/25% Leg | PDH/Asian/H4 Sweeps | M5 Reclaim")
+    logger.info("  Gold:   0.02 lot | TP: $55.00 | Max SL: $34.00 (17 pts)  | BE: +$28 | Lock1: $44->$32 | Lock2: $56->$45")
+    logger.info("  Oil:    0.05 lot | TP: $55.00 | Max SL: $34.00 ($0.68)   | BE: +$28 | Lock1: $44->$32 | Lock2: $56->$45")
+    logger.info("  US30:   0.25 lot | TP: $55.00 | Max SL: $34.00 (136 pts) | BE: +$28 | Lock1: $44->$32 | Lock2: $56->$45")
+    logger.info("  Killzones: Mon - Fri 06-09 UTC (09-13 EAT) & 14-19 UTC (17-23 EAT) | Daily DD Cap: -$50 | Max Conc: 2")
+    logger.info("  Guidance: ForexFactory Real-Time Macro News Engine (USD) | Friday 20:45 UTC Weekend Guard")
     logger.info("=" * 65)
 
     # 1. Send Online Startup Notification to Telegram
     startup_msg = (
-        "<b>🏛 AlphaEdge — Institutional MTF Whale Flow Engine Active</b>\n\n"
-        "<b>Live Trading Assets (3 Assets Active):</b>\n"
-        "• <b>Gold (XAUUSDm):</b> $100.00 TP | $36.00 SL (18 pts) | BE +$20 | Lock1 $35->$25 | Lock2 $60->$45 | <b>0.02 Lot</b>\n"
-        "• <b>Crude Oil (USOILm):</b> $100.00 TP | $35.00 SL ($0.70) | BE +$20 | Lock1 $35->$25 | Lock2 $60->$45 | <b>0.05 Lot</b>\n"
-        "• <b>Dow Jones (US30m):</b> $100.00 TP | $36.00 SL (144 pts) | BE +$20 | Lock1 $35->$25 | Lock2 $60->$45 | <b>0.25 Lot</b>\n"
+        "<b>🏛 AlphaEdge — Pure Price Action 3-TF Engine Active</b>\n\n"
+        "<b>Live Trading Assets (3 Assets | Strict -$50 Daily DD Cap):</b>\n"
+        "• <b>Gold (XAUUSDm):</b> $55.00 TP | $34.00 SL (17 pts) | BE +$28 | Lock1 $44->$32 | Lock2 $56->$45 | <b>0.02 Lot</b>\n"
+        "• <b>Crude Oil (USOILm):</b> $55.00 TP | $34.00 SL ($0.68) | BE +$28 | Lock1 $44->$32 | Lock2 $56->$45 | <b>0.05 Lot</b>\n"
+        "• <b>Dow Jones (US30m):</b> $55.00 TP | $34.00 SL (136 pts) | BE +$28 | Lock1 $44->$32 | Lock2 $56->$45 | <b>0.25 Lot</b>\n"
         "<b>Shadow Observation (6 Assets):</b> EURUSDm · USTECm (Nasdaq) · GBPUSDm · US500m (S&P 500) · GBPJPYm (Guppy) · DE30m (DAX) (paper mode)\n\n"
-        "<b>AlphaEdge Institutional Architecture:</b>\n"
-        "• <b>Principle 3 (Approach Architecture):</b> Filters pre-zone compression vs. exhaustion arrival. Blocks breakout traps.\n"
-        "• <b>Anti-Chase Wholesale Shield:</b> Declines late entries at candle tops; guarantees wholesale fill pricing.\n"
-        "• <b>Solo Gold Focus:</b> Silver decoupled completely to eliminate correlated drag.\n"
-        "• <b>Overnight Spread Gate (23:00 EAT):</b> $45 buffer shields open swings from rollover spread spikes.\n\n"
-        "<b>Execution Window:</b> Tuesday – Friday, 5:00 AM – 11:00 PM EAT (Monday = Observation Only)\n\n"
-        "<b>Status:</b> 🟢 Ready for Tuesday open. Hunting high-conviction institutional setups."
+        "<b>Pure Price Action 3-Timeframe Architecture (Zero Indicators):</b>\n"
+        "• <b>TF1 (D1 + H4):</b> Fractal Swing Structure (3-state) + 75%/25% Swing Leg Equilibrium.\n"
+        "• <b>TF2 (Pools + M15):</b> PDH/PDL, Asian H/L & Closed H4 H/L Sweeps + Anti-Crash Validation.\n"
+        "• <b>TF3 (M5 Precision):</b> 2-Bar Sweep Reclaim & Engulf Turn + Anti-Climax Guard.\n"
+        "• <b>Capital Protection:</b> Hard $34 SL (never widened) | Max 2 Concurrent | Friday 23:45 EAT Close.\n\n"
+        "<b>Killzones:</b> Monday – Friday | 09:00–12:59 & 17:00–22:59 EAT (London + NY Open)\n\n"
+        "<b>Status:</b> 🟢 Armed & Waiting for Pure PA Liquidity Sweeps."
     )
     send_telegram_alert(startup_msg)
 
@@ -1942,22 +1942,21 @@ if __name__ == "__main__":
 
                         # Build the daily analysis message
                         eod_msg = (
-                            "<b>📊 AlphaEdge Daily Gold Market Report</b>\n"
-                            "<b>End of Day — Pre-Close Analysis</b>\n\n"
+                            "<b>📊 AlphaEdge Daily Market Report</b>\n"
+                            "<b>End of Day — Pure Price Action 3-TF Analysis</b>\n\n"
                             f"• <b>Gold Price (Close):</b> ${gold_price:.2f}\n"
                             f"• <b>Account Balance:</b> ${bal:.2f}\n"
                             f"• <b>Account Equity:</b> ${eq:.2f}\n"
                             f"• <b>Floating PnL:</b> ${pnl:+.2f}\n\n"
-                            f"<b>Today's Scalp Performance:</b>\n"
-                            f"• <b>Total Scalp Trades:</b> {total_trades}\n"
+                            f"<b>Today's Pure PA Performance:</b>\n"
+                            f"• <b>Closed Trades:</b> {total_trades}\n"
                             f"• <b>Wins:</b> {wins}  |  <b>Losses:</b> {loss}\n"
                             f"• <b>Win Rate:</b> {win_rate}%\n"
                             f"• <b>Today's Realized PnL:</b> ${day_pnl:+.2f}\n\n"
-                            f"<b>Market Session Summary:</b>\n"
-                            f"• Asian Session: Completed\n"
-                            f"• London Session: Completed\n"
-                            f"• NY Session: Closing in 15 minutes\n\n"
-                            f"<b>Bot Status:</b> 🟢 Active | Lot Size: 0.01 (Micro) | Single Order TP1 Lock"
+                            f"<b>Killzone Coverage Summary:</b>\n"
+                            f"• London Killzone (09–13 EAT): Completed\n"
+                            f"• NY Session (17–23 EAT): Closing shortly\n\n"
+                            f"<b>Bot Status:</b> 🟢 Pure PA 3-TF Active | Lots: 0.02 / 0.05 / 0.25 | -$50 Daily DD Cap"
                         )
                         send_telegram_alert(eod_msg)
                         logger.info("[Scalp] End-of-Day daily analysis sent to Telegram.")

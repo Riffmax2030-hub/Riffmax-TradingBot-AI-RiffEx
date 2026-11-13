@@ -135,10 +135,10 @@ def sync_closed_trades_from_history():
     if not open_tickets:
         return
         
-    deals = mt5.history_deals_get(datetime.now(timezone.utc).timestamp() - 86400, datetime.now(timezone.utc).timestamp() + 3600)
+    deals = mt5.history_deals_get(datetime.now(timezone.utc).timestamp() - (14 * 86400), datetime.now(timezone.utc).timestamp() + 3600)
     if not deals:
         return
-        
+
     closed_notifications = []
     updated = False
     for deal in deals:
@@ -147,17 +147,22 @@ def sync_closed_trades_from_history():
             for row in rows:
                 if str(row.get("ticket")) == pos_id and row.get("status") == "OPEN":
                     row["close_time"] = datetime.fromtimestamp(deal.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    row["close_price"] = round(deal.price, 2)
+                    sym = row.get("symbol", "")
+                    row["close_price"] = round(deal.price, 3 if "OIL" in sym else 2)
                     row["pnl_usd"] = round(deal.profit, 2)
-                    # Determine reason
-                    tp_val = float(row.get("tp_target", 0.0))
-                    sl_val = float(row.get("sl_initial", 0.0))
+                    # Determine exit reason using broker deal.reason and relative price tolerance
+                    open_val = float(row.get("open_price", 0.0) or 0.0)
+                    tp_val = float(row.get("tp_target", 0.0) or 0.0)
                     is_be = (row.get("be_activated") == "True")
+                    deal_reason = getattr(deal, "reason", None)
+                    tp_tol = max(abs(tp_val - open_val) * 0.05, 0.005) if tp_val > 0 and open_val > 0 else 0.05
 
-                    if deal.profit > 0 and abs(deal.price - tp_val) <= 0.5:
+                    if deal.profit > 0 and (deal_reason == getattr(mt5, "DEAL_REASON_TP", 4) or (tp_val > 0 and abs(deal.price - tp_val) <= tp_tol)):
                         reason = "TP_HIT"
-                    elif is_be and abs(deal.profit) < 0.5:
+                    elif is_be and abs(deal.profit) <= 3.0 and deal.profit >= 0:
                         reason = "BE_PROTECTED"
+                    elif deal.profit > 0 and is_be:
+                        reason = "LOCK_HIT"
                     elif deal.profit < 0:
                         reason = "SL_HIT"
                     else:

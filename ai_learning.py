@@ -151,13 +151,13 @@ class AutoLearner:
         date_to   = datetime.now()
         deals = mt5.history_deals_get(date_from, date_to)
 
-        # Baseline Defaults (Wholesale Institutional Swing - $100 TP baseline)
-        gold_tp = 65.0
-        gold_tp_catalyst = 85.0
-        gold_be = 20.0
-        lock1_trig = 35.0
-        lock1_amt = 25.0
-        lock2_trig = 60.0
+        # Baseline Defaults (Calibrated Pure PA 3-TF Swing - $55 TP / $34 SL / $28 BE / $44->$32 Lock1)
+        gold_tp = 55.0
+        gold_tp_catalyst = 70.0
+        gold_be = 28.0
+        lock1_trig = 44.0
+        lock1_amt = 32.0
+        lock2_trig = 56.0
         lock2_amt = 45.0
         regime = "BALANCED_INSTITUTIONAL_SWING"
 
@@ -204,55 +204,51 @@ class AutoLearner:
             f"Win Rate: {win_rate}% | Net PnL: ${net_pnl:+.2f} | Volatility: {vol_state} (ATR Ratio: {vol_info.get('ratio', 1.0)})"
         )
 
-        # ── Dynamic Quantitative Adaptation Decisions ──
+        # ── Dynamic Quantitative Adaptation Decisions (Calibrated Pure PA Bounds) ──
         if total_trades >= 5:
             if win_rate >= 60.0 and net_pnl > 0:
-                # Strong trending follow-through: expand target room for big swing gains
-                regime = "HIGH_CONVICTION_INSTITUTIONAL_SWING"
-                gold_tp = 110.0
-                gold_tp_catalyst = 130.0
-                gold_be = 20.0
-                lock1_trig = 35.0
-                lock1_amt = 25.0
-                lock2_trig = 60.0
+                regime = "HIGH_CONVICTION_PURE_PA_SWING"
+                gold_tp = 62.0
+                gold_tp_catalyst = 75.0
+                gold_be = 28.0
+                lock1_trig = 44.0
+                lock1_amt = 32.0
+                lock2_trig = 56.0
                 lock2_amt = 45.0
             elif win_rate < 45.0:
-                # Defensive mode: protect capital faster during choppy rotations
-                regime = "DEFENSIVE_INSTITUTIONAL_SWING"
-                gold_tp = 85.0
-                gold_tp_catalyst = 105.0
-                gold_be = 15.0  # Tighten BE to 15.0 to lock profit before pullbacks
-                lock1_trig = 30.0
-                lock1_amt = 20.0
-                lock2_trig = 50.0
-                lock2_amt = 35.0
+                regime = "DEFENSIVE_PURE_PA_SWING"
+                gold_tp = 50.0
+                gold_tp_catalyst = 65.0
+                gold_be = 26.0
+                lock1_trig = 40.0
+                lock1_amt = 28.0
+                lock2_trig = 52.0
+                lock2_amt = 40.0
             else:
-                regime = "BALANCED_INSTITUTIONAL_SWING"
-                gold_tp = 65.0
-                gold_tp_catalyst = 85.0
-                gold_be = 20.0
-                lock1_trig = 35.0
-                lock1_amt = 25.0
-                lock2_trig = 60.0
+                regime = "BALANCED_PURE_PA_SWING"
+                gold_tp = 55.0
+                gold_tp_catalyst = 70.0
+                gold_be = 28.0
+                lock1_trig = 44.0
+                lock1_amt = 32.0
+                lock2_trig = 56.0
                 lock2_amt = 45.0
         else:
-            regime = "INITIAL_INSTITUTIONAL_SWING"
-            gold_tp = 65.0
-            gold_tp_catalyst = 85.0
-            gold_be = 20.0
-            lock1_trig = 35.0
-            lock1_amt = 25.0
-            lock2_trig = 60.0
+            regime = "INITIAL_PURE_PA_SWING"
+            gold_tp = 55.0
+            gold_tp_catalyst = 70.0
+            gold_be = 28.0
+            lock1_trig = 44.0
+            lock1_amt = 32.0
+            lock2_trig = 56.0
             lock2_amt = 45.0
 
-        # Dynamic Volatility Overlay (Never widens initial SL risk!)
+        # Dynamic Volatility Overlay (Never widens initial $34 SL or squeezes BE below $24!)
         if vol_state == "EXPANSION":
-            # High volatility expansion: give runners +10% extra target upside
-            gold_tp = round(gold_tp * 1.10, 1)
-            gold_tp_catalyst = round(gold_tp_catalyst * 1.10, 1)
+            gold_tp = min(65.0, round(gold_tp * 1.10, 1))
+            gold_tp_catalyst = min(75.0, round(gold_tp_catalyst * 1.10, 1))
         elif vol_state == "COMPRESSION":
-            # Low volatility squeeze: tighten BE to guarantee runners don't reverse
-            gold_be = min(gold_be, 15.0)
+            gold_be = max(24.0, round(gold_be - 2.0, 1))
 
         old_config = self.load_config()
         new_config = {
@@ -278,7 +274,7 @@ class AutoLearner:
                     "lock_amount_dollars": lock1_amt,
                     "lock2_trigger_dollars": lock2_trig,
                     "lock2_amount_dollars": lock2_amt,
-                    "max_sl_dollars": 36.0
+                    "max_sl_dollars": 34.0
                 },
                 "USOILm": {
                     "tp_dollars": gold_tp,
@@ -288,7 +284,7 @@ class AutoLearner:
                     "lock_amount_dollars": lock1_amt,
                     "lock2_trigger_dollars": lock2_trig,
                     "lock2_amount_dollars": lock2_amt,
-                    "max_sl_dollars": 35.0
+                    "max_sl_dollars": 34.0
                 },
                 "US30m": {
                     "tp_dollars": gold_tp,
@@ -298,7 +294,7 @@ class AutoLearner:
                     "lock_amount_dollars": lock1_amt,
                     "lock2_trigger_dollars": lock2_trig,
                     "lock2_amount_dollars": lock2_amt,
-                    "max_sl_dollars": 36.0
+                    "max_sl_dollars": 34.0
                 }
             },
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")

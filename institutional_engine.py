@@ -538,37 +538,93 @@ class InstitutionalEngine:
         if not range_info:
             return {"valid": False, "direction": "NONE", "reason": "Dealing range calculation failed"}
 
-        # H4 Macro Trend & Momentum Filter (EMAs + Price Action Structure)
-        h4_closes = df_h4['close'].astype(float).values
-        h4_highs = df_h4['high'].astype(float).values
-        h4_lows  = df_h4['low'].astype(float).values
-        
-        # Calculate H4 EMAs (EMA 20 & EMA 50)
-        ema20_h4 = pd.Series(h4_closes).ewm(span=20).mean().iloc[-1]
-        ema50_h4 = pd.Series(h4_closes).ewm(span=50).mean().iloc[-1]
-        
-        # Calculate H1 EMAs for micro-structure confirmation
-        h1_closes = df_h1['close'].astype(float).values
-        ema20_h1 = pd.Series(h1_closes).ewm(span=20).mean().iloc[-1]
-        ema50_h1 = pd.Series(h1_closes).ewm(span=50).mean().iloc[-1]
+        # Pure Price Action 3-Timeframe Confirmation (NO UT Bot / NO EMA crossovers)
+        from datetime import datetime, timezone
+        from pure_price_action import (
+            compute_h4_structure_series,
+            compute_asian_range_at,
+            evaluate_3tf_pure_pa_step,
+        )
 
-        # H1 EMA Intermediate Trend Direction
-        h1_bullish = (curr_price > ema50_h1) and (ema20_h1 >= ema50_h1)
-        h1_bearish = (curr_price < ema50_h1) and (ema20_h1 <= ema50_h1)
+        # TF1: Closed H4 Pure Fractal Swing & BOS Narrative (non-repainting)
+        df_h4_closed = df_h4.iloc[:-1]
+        h4_b3, h4_sh_arr, h4_sl_arr = compute_h4_structure_series(
+            df_h4_closed["high"].astype(float).values,
+            df_h4_closed["low"].astype(float).values,
+            df_h4_closed["close"].astype(float).values,
+        )
+        h4_bias_state = int(h4_b3[-1]) if len(h4_b3) > 0 else 0
+        h4_sh = float(h4_sh_arr[-1]) if len(h4_sh_arr) > 0 else float("nan")
+        h4_sl = float(h4_sl_arr[-1]) if len(h4_sl_arr) > 0 else float("nan")
+        h4_trend = "BULLISH" if h4_bias_state == 1 else ("BEARISH" if h4_bias_state == -1 else "RANGE")
 
-        # Multi-bar swing structure
-        is_higher_highs = h4_highs[-2] > h4_highs[-4] and h4_lows[-2] > h4_lows[-4]
-        is_lower_lows = h4_highs[-2] < h4_highs[-4] and h4_lows[-2] < h4_lows[-4]
+        # Closed H1 pure swing state (informational / structural telemetry only)
+        df_h1_closed = df_h1.iloc[:-1]
+        h1_b3, _, _ = compute_h4_structure_series(
+            df_h1_closed["high"].astype(float).values,
+            df_h1_closed["low"].astype(float).values,
+            df_h1_closed["close"].astype(float).values,
+        )
+        h1_bias_state = int(h1_b3[-1]) if len(h1_b3) > 0 else 0
+        h1_bullish = (h1_bias_state == 1)
+        h1_bearish = (h1_bias_state == -1)
 
-        # Pure Trend Bias:
-        # BULLISH if price > EMA50 and EMA20 >= EMA50 (or clean higher highs/lows)
-        # BEARISH if price < EMA50 and EMA20 <= EMA50 (or clean lower highs/lows)
-        if (curr_price > ema50_h4 and ema20_h4 >= ema50_h4) or is_higher_highs:
-            h4_trend = "BULLISH"
-        elif (curr_price < ema50_h4 and ema20_h4 <= ema50_h4) or is_lower_lows:
-            h4_trend = "BEARISH"
-        else:
-            h4_trend = "RANGE"
+        # TF2 + TF3: Fetch closed M5 bars for Asian range & M5 sweep reclaim confirmation
+        rates_m5 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 320)
+        pa_res = {
+            "triggered": False,
+            "direction": None,
+            "sweep_extreme": 0.0,
+            "swept_pools": [],
+            "h4_trend": h4_trend,
+            "h4_swing_loc_pct": 50.0,
+            "reason": "M5_INSUFFICIENT_DATA",
+        }
+        if rates_m5 is not None and len(rates_m5) >= 30 and len(df_m15) >= 22:
+            df_m5_closed = pd.DataFrame(rates_m5).iloc[:-1]
+            df_m15_closed = df_m15.iloc[:-1]
+            m5_ranges_prev = (
+                df_m5_closed["high"].iloc[-21:-1].astype(float)
+                - df_m5_closed["low"].iloc[-21:-1].astype(float)
+            ).values
+            m15_ranges = (
+                df_m15_closed["high"].iloc[-20:].astype(float)
+                - df_m15_closed["low"].iloc[-20:].astype(float)
+            ).values
+            m5_med_range = float(np.median(m5_ranges_prev)) if len(m5_ranges_prev) > 0 else 0.0
+            m15_med_range = float(np.median(m15_ranges)) if len(m15_ranges) > 0 else 0.0
+
+            eval_ts = int(df_m5_closed["time"].iloc[-1])
+            asian_h, asian_l = compute_asian_range_at(
+                df_m5_closed["time"].astype(int).values,
+                df_m5_closed["high"].astype(float).values,
+                df_m5_closed["low"].astype(float).values,
+                eval_ts,
+            )
+            dt_utc = datetime.fromtimestamp(eval_ts, tz=timezone.utc)
+            pa_res = evaluate_3tf_pure_pa_step(
+                c_m5=float(df_m5_closed["close"].iloc[-1]),
+                o_m5=float(df_m5_closed["open"].iloc[-1]),
+                h_m5=float(df_m5_closed["high"].iloc[-1]),
+                l_m5=float(df_m5_closed["low"].iloc[-1]),
+                c_m5_prev=float(df_m5_closed["close"].iloc[-2]),
+                h_m5_prev=float(df_m5_closed["high"].iloc[-2]),
+                l_m5_prev=float(df_m5_closed["low"].iloc[-2]),
+                m5_med_range=m5_med_range,
+                m15_o=float(df_m15_closed["open"].iloc[-1]),
+                m15_c=float(df_m15_closed["close"].iloc[-1]),
+                m15_med_range=m15_med_range,
+                h4_bias_state=h4_bias_state,
+                h4_sh=h4_sh,
+                h4_sl=h4_sl,
+                pdh=float(pdh),
+                pdl=float(pdl),
+                h4_prev_h=float(df_h4_closed["high"].iloc[-1]),
+                h4_prev_l=float(df_h4_closed["low"].iloc[-1]),
+                asian_h=asian_h,
+                asian_l=asian_l,
+                dt_utc=dt_utc,
+            )
 
         loc_pct = range_info.get("clamped_loc_pct", 50.0)
         raw_loc = range_info.get("location_pct", 50.0)
@@ -581,18 +637,8 @@ class InstitutionalEngine:
         #    If price broke below PDL (raw_loc < 0%), buying is FORBIDDEN (Institutions are in Expansion Down).
         #    If price broke above PDH (raw_loc > 100%), selling is FORBIDDEN (Institutions are in Expansion Up).
         # 3. Intermediate H1 trend must NOT oppose the setup.
-        if h4_trend == "BULLISH":
-            # Buying allowed if price is not in deep premium (>65%) and not dumped into a free-fall (< 0% without reclaim)
-            macro_buy_allowed = (loc_pct <= 65.0) and not is_breakout_down and not h1_bearish
-            macro_sell_allowed = False
-        elif h4_trend == "BEARISH":
-            # Selling allowed if price is not in deep discount (<35%) and not pumped into an escape velocity (> 100% without reclaim)
-            macro_buy_allowed = False
-            macro_sell_allowed = (loc_pct >= 35.0) and not is_breakout_up and not h1_bullish
-        else:
-            # RANGE_BOUND: Only trade at extremes of the confirmed range
-            macro_buy_allowed = range_info["is_discount"] and (loc_pct <= 45.0) and not is_breakout_down and not h1_bearish
-            macro_sell_allowed = range_info["is_premium"] and (loc_pct >= 55.0) and not is_breakout_up and not h1_bullish
+        macro_buy_allowed = bool(pa_res["triggered"] and pa_res["direction"] == "BUY")
+        macro_sell_allowed = bool(pa_res["triggered"] and pa_res["direction"] == "SELL")
 
         # 2. M15 / H1 Micro Actionable Trigger Evaluation
         m15_buy_sweep, m15_low = self.detect_liquidity_sweep(df_m15, "BUY")
@@ -614,15 +660,17 @@ class InstitutionalEngine:
 
         # M15 ATR for responsive sniper SL calculation
         m15_atr = _compute_atr(df_m15, period=14)
+        ut_signal_m15 = ("PA_" + "+".join(pa_res["swept_pools"])) if pa_res["swept_pools"] else "PURE_PA"
+        whale_gate_ok = True
         if symbol == "XAUUSDm":
-            min_sl_pts = 18.0   # 18.0 pts ($36 USD at 0.02 lot)
-            min_tp_pts = 50.0   # 50.0 pts ($100 USD at 0.02 lot)
+            min_sl_pts = 17.0   # 17.0 pts ($34 USD at 0.02 lot)
+            min_tp_pts = 27.5   # 27.5 pts ($55 USD at 0.02 lot)
         elif "OIL" in symbol:
-            min_sl_pts = 0.70   # $0.70 ($35 USD at 0.05 lot — expanded room against wicks)
-            min_tp_pts = 2.00   # $2.00 ($100 USD at 0.05 lot)
+            min_sl_pts = 0.68   # $0.68 ($34 USD at 0.05 lot)
+            min_tp_pts = 1.10   # $1.10 ($55 USD at 0.05 lot)
         elif "30" in symbol or "USTEC" in symbol or "NAS" in symbol:
-            min_sl_pts = 144.0  # 144 pts ($36 USD at 0.25 lot)
-            min_tp_pts = 400.0  # 400 pts ($100 USD at 0.25 lot)
+            min_sl_pts = 136.0  # 136 pts ($34 USD at 0.25 lot)
+            min_tp_pts = 220.0  # 220 pts ($55 USD at 0.25 lot)
         elif "XAG" in symbol or "SILVER" in symbol:
             min_sl_pts = 0.36   # $0.36 ($36 USD at 0.02 lot)
             min_tp_pts = 0.60   # $0.60 ($60 USD at 0.02 lot)
@@ -644,24 +692,27 @@ class InstitutionalEngine:
         whale_gate_ok = True
 
         # ---------------- BUY SETUP EVALUATION ----------------
-        has_buy_trigger = (ut_signal_m15 == "BUY") or ((m15_buy_sweep or h1_buy_sweep) and has_buy_fvg and ut_signal_m15 != "SELL")
+        has_buy_trigger = macro_buy_allowed
         if macro_buy_allowed and has_buy_trigger and whale_gate_ok:
-            sweep_ref = min(m15_low, h1_low) if (m15_buy_sweep or h1_buy_sweep) else (curr_price - sl_buffer)
+            sweep_ref = float(pa_res["sweep_extreme"]) if pa_res["sweep_extreme"] > 0 else (curr_price - sl_buffer)
             sl_price = sweep_ref - sl_buffer
             sl_dist = abs(tick.ask - sl_price)
             if sl_dist > 0:
                 tp_offset = max(sl_dist * 1.5, min_tp_pts)
                 tp_price = tick.ask + tp_offset
-                trigger_type = "Liquidity Sweep Wick Rejection" if (m15_buy_sweep or h1_buy_sweep) else f"M15 UT Bot {ut_signal_m15}"
+                swept_tag = "+".join(pa_res.get("swept_pools", [])) or "PA"
+                trigger_type = f"Pure PA 3-TF ({swept_tag})"
                 rr_calc = round(tp_offset / sl_dist, 2)
+                h4_tr = pa_res.get("h4_trend", h4_trend)
+                h4_loc = float(pa_res.get("h4_swing_loc_pct", range_info["location_pct"]))
                 logger.info(
-                    f"[InstitutionalEngine] BUY Triggered! {symbol} | H4: {h4_trend} ({range_info['location_pct']:.1f}%) | "
+                    f"[InstitutionalEngine] BUY Triggered! {symbol} | H4: {h4_tr} (Leg {h4_loc:.1f}%) | "
                     f"Trigger: {trigger_type} | Entry: {tick.ask:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} (R:R {rr_calc:.2f})"
                 )
                 return {
                     "valid": True,
                     "direction": "BUY",
-                    "reason": f"H4 Bias {h4_trend} ({range_info['location_pct']:.1f}%) + {trigger_type}",
+                    "reason": pa_res.get("reason", f"H4 {h4_tr} + {trigger_type}"),
                     "entry_price": tick.ask,
                     "sl_price": sl_price,
                     "tp_price": tp_price,
@@ -670,30 +721,33 @@ class InstitutionalEngine:
                     "vol_ratio": max_vol_ratio,
                     "sweep_level": sweep_ref,
                     "fvg_detected": has_buy_fvg,
-                    "ut_bot": ut_signal_m15,
+                    "ut_bot": f"PA:{swept_tag}",
                     "approach_type": "CLEAN_FLOW",
                     "rr_ratio": rr_calc
                 }
 
         # ---------------- SELL SETUP EVALUATION ----------------
-        has_sell_trigger = (ut_signal_m15 == "SELL") or ((m15_sell_sweep or h1_sell_sweep) and has_sell_fvg and ut_signal_m15 != "BUY")
+        has_sell_trigger = macro_sell_allowed
         if macro_sell_allowed and has_sell_trigger and whale_gate_ok:
-            sweep_ref = max(m15_high, h1_high) if (m15_sell_sweep or h1_sell_sweep) else (curr_price + sl_buffer)
+            sweep_ref = float(pa_res["sweep_extreme"]) if pa_res["sweep_extreme"] > 0 else (curr_price + sl_buffer)
             sl_price = sweep_ref + sl_buffer
             sl_dist = abs(sl_price - tick.bid)
             if sl_dist > 0:
                 tp_offset = max(sl_dist * 1.5, min_tp_pts)
                 tp_price = tick.bid - tp_offset
-                trigger_type = "Liquidity Sweep Wick Rejection" if (m15_sell_sweep or h1_sell_sweep) else f"M15 UT Bot {ut_signal_m15}"
+                swept_tag = "+".join(pa_res.get("swept_pools", [])) or "PA"
+                trigger_type = f"Pure PA 3-TF ({swept_tag})"
                 rr_calc = round(tp_offset / sl_dist, 2)
+                h4_tr = pa_res.get("h4_trend", h4_trend)
+                h4_loc = float(pa_res.get("h4_swing_loc_pct", range_info["location_pct"]))
                 logger.info(
-                    f"[InstitutionalEngine] SELL Triggered! {symbol} | H4: {h4_trend} ({range_info['location_pct']:.1f}%) | "
+                    f"[InstitutionalEngine] SELL Triggered! {symbol} | H4: {h4_tr} (Leg {h4_loc:.1f}%) | "
                     f"Trigger: {trigger_type} | Entry: {tick.bid:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} (R:R {rr_calc:.2f})"
                 )
                 return {
                     "valid": True,
                     "direction": "SELL",
-                    "reason": f"H4 Bias {h4_trend} ({range_info['location_pct']:.1f}%) + {trigger_type}",
+                    "reason": pa_res.get("reason", f"H4 {h4_tr} + {trigger_type}"),
                     "entry_price": tick.bid,
                     "sl_price": sl_price,
                     "tp_price": tp_price,
@@ -702,24 +756,14 @@ class InstitutionalEngine:
                     "vol_ratio": max_vol_ratio,
                     "sweep_level": sweep_ref,
                     "fvg_detected": has_sell_fvg,
-                    "ut_bot": ut_signal_m15,
+                    "ut_bot": f"PA:{swept_tag}",
                     "approach_type": "CLEAN_FLOW",
                     "rr_ratio": rr_calc
                 }
 
-        block_note = ""
-        if h4_trend == "BEARISH" and loc_pct < 35.0:
-            block_note = f" (SELL blocked: deep discount {loc_pct:.1f}% < 35%)"
-        elif h4_trend == "BULLISH" and loc_pct > 65.0:
-            block_note = f" (BUY blocked: deep premium {loc_pct:.1f}% > 65%)"
-        elif ut_signal_m15 == "BUY" and (m15_sell_sweep or h1_sell_sweep):
-            block_note = " (SELL sweep blocked: M15 UT Bot is BUY)"
-        elif ut_signal_m15 == "SELL" and (m15_buy_sweep or h1_buy_sweep):
-            block_note = " (BUY sweep blocked: M15 UT Bot is SELL)"
-
         skip_reason = (
-            f"Waiting for alignment. H4: {h4_trend} (Loc: {loc_pct:.1f}%){block_note}, "
-            f"M15 UT: {ut_signal_m15}, Sweeps: B={m15_buy_sweep}/S={m15_sell_sweep}."
+            f"Waiting for Pure PA 3-TF alignment: {pa_res.get('reason', 'NONE')} "
+            f"(H4: {pa_res.get('h4_trend', h4_trend)}, Leg: {pa_res.get('h4_swing_loc_pct', loc_pct):.1f}%)."
         )
 
         return {

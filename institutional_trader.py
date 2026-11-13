@@ -1,22 +1,22 @@
 """
-institutional_trader.py — AlphaEdge Institutional Multi-Timeframe & Whale Flow Swing Engine
+institutional_trader.py — AlphaEdge Pure Price Action 3-Timeframe Execution Engine
 ===================================================================================
-Replaces the legacy scalper with a high-conviction Institutional Swing Architecture:
-  - Multi-Timeframe Structure (H4 / H1 / M15):
-      * H4 Dealing Range (Premium vs Discount Zone).
-      * Strict Bottom Rule: BUY orders ONLY in Discount (< 50% Eq).
-      * Strict Top Rule: SELL orders ONLY in Premium (> 50% Eq).
-      * Refuses to chase moves halfway or buy at the top!
-  - Whale Flow & Volume Climax Detection:
-      * Liquidity Sweeps (Stop Hunts): Absorbs retail stop orders, rejects back into range.
-      * Tick Volume Surge: Volume >= 1.6x 20-period moving average on the sweep candle.
-      * Fair Value Gap (FVG) / Imbalance validation.
-  - Target & Holding Calibration:
-      * Gold (XAUUSDm, 0.02 lot): Full TP = $40.00 USD ($20.00 price expansion). Max SL = $24.00 USD (12.0 pts).
-      * Gold Stage 1 BE: Triggers at +$15.00 profit.
-      * Gold Stage 2 Profit Lock: Triggers at +$25.00 profit -> locks +$18.00.
-  - Session Gateway: 24/5 for Gold (Sunday 23:00 EAT to Friday 23:55 EAT).
-  - Strict 60-Minute Post-Closure Cooldown Shield: Prevents premature re-entries.
+High-conviction Pure Price Action multi-timeframe swing engine (zero lagging indicators):
+  - TF1 (D1 + H4 Macro): H4 fractal swing structure (3-state: BULL/BEAR/RANGE) +
+                         active H4 swing leg equilibrium (BUY <= 75%, SELL >= 25%).
+  - TF2 (Key Pools & M15): Liquidity sweeps of PDH/PDL, Asian H/L (00-06 UTC), and
+                           Closed H4 H/L with M15 anti-crash blowout validation.
+  - TF3 (M5 Execution): 2-bar sweep-and-reclaim + directional engulf/turn candle
+                        breaking prior bar extreme + anti-climax range guard.
+  - Calibrated Exits (XAUUSDm 0.02 | USOILm 0.05 | US30m 0.25):
+      * TP = $55.00 USD (Catalyst: $70.00) | Hard SL = $34.00 USD
+      * Stage 1 BE: +$28.00 -> move SL to Entry + $2.00 buffer
+      * Stage 2 Profit Lock: +$44.00 -> lock +$32.00
+      * Stage 3 Super-Runner Lock: +$56.00 -> lock +$45.00
+  - Risk & Session Shields:
+      * Mon-Fri London (06-09 UTC / 09-13 EAT) & NY (14-19 UTC / 17-23 EAT) Killzones.
+      * Strict -$50.00 daily drawdown hard stop, max 2 concurrent positions, 60-min cooldown.
+      * Friday 20:45+ UTC weekend-close protection; zero SL widening overnight.
 """
 
 import os
@@ -28,6 +28,7 @@ from datetime import datetime, timezone, timedelta
 import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
+from pure_price_action import CALIBRATED_ASSET_SPECS, is_killzone_active
 from news_catalyst_engine import NewsCatalystEngine
 from institutional_engine import InstitutionalEngine
 from pre_trade_backtester import PreTradeBacktester
@@ -42,56 +43,19 @@ from m15_trade_analysis_logger import (
 
 logger = logging.getLogger("AlphaEdge.Institutional")
 
-# Asset Configurations (Institutional MTF Swing Engine - User Defined Lots)
+MAX_DAILY_DRAWDOWN_USD = 50.0
+MAX_CONCURRENT_POSITIONS = 2
+_DAILY_DD_ALERT_DATE = None
+
+# Asset Configurations (Pure Price Action 3-TF Engine - Calibrated for $500+ Account)
 ASSET_CONFIGS = {
-    "XAUUSDm": {
-        "symbol": "XAUUSDm",
-        "lot": 0.02,                      # 0.02 Lot (User exact setting)
-        "key_mult": 1.0,
-        "atr_period": 10,
-        "tp_dollars": 65.0,              # Target: $65.00 USD Profit (32.5 pts move with 0.02 lot)
-        "tp_catalyst_dollars": 85.0,     # Expanded $120.00 Target during High Momentum
-        "be_trigger_dollars": 20.0,       # Stage 1: Move SL to Entry at +$20.00 profit (10.0 pts)
-        "lock_trigger_dollars": 35.0,     # Stage 2: Trigger Profit Lock at +$35.00 profit (17.5 pts)
-        "lock_amount_dollars": 25.0,      # Stage 2: Lock $25.00 profit into SL (12.5 pts)
-        "lock2_trigger_dollars": 60.0,    # Stage 3: Trigger Profit Lock 2 at +$60.00 profit (30.0 pts)
-        "lock2_amount_dollars": 45.0,     # Stage 3: Lock $45.00 profit into SL (22.5 pts)
-        "max_sl_dollars": 36.0,           # Max Initial Risk Cap: $36.00 USD (18.0 pts room)
+    sym: {
+        "symbol": sym,
+        **spec,
         "sl_atr_mult": 1.5,
-        "currency": "USD"
-    },
-    "USOILm": {
-        "symbol": "USOILm",
-        "lot": 0.05,                      # 0.05 Lot ($50.00 per $1.00 move)
-        "key_mult": 1.0,
-        "atr_period": 10,
-        "tp_dollars": 65.0,              # Target: $65.00 USD ($1.30 move at 0.05 lot)
-        "tp_catalyst_dollars": 85.0,     # Expanded $120.00 Target ($2.40 move during high news volatility)
-        "be_trigger_dollars": 20.0,       # BE Protection: Move SL to Entry at +$20.00 profit ($0.40 move)
-        "lock_trigger_dollars": 35.0,     # Stage 2: Trigger Profit Lock at +$35.00 profit ($0.70 move)
-        "lock_amount_dollars": 25.0,      # Stage 2: Lock +$25.00 profit into SL ($0.50 move)
-        "lock2_trigger_dollars": 60.0,    # Stage 3: Trigger Profit Lock 2 at +$60.00 profit ($1.20 move)
-        "lock2_amount_dollars": 45.0,     # Stage 3: Lock $45.00 profit into SL ($0.90 move)
-        "max_sl_dollars": 35.0,           # Expanded Room: $35.00 USD ($0.70 room to prevent premature wick stopouts)
-        "sl_atr_mult": 1.5,
-        "currency": "USD"
-    },
-    "US30m": {
-        "symbol": "US30m",
-        "lot": 0.25,                      # 0.25 Lot ($0.25 per index pt)
-        "key_mult": 1.0,
-        "atr_period": 10,
-        "tp_dollars": 65.0,              # Target: $65.00 USD Profit (260.0 index pts move)
-        "tp_catalyst_dollars": 85.0,     # Expanded $120.00 Target (480.0 index pts move)
-        "be_trigger_dollars": 20.0,       # Stage 1: Move SL to Entry at +$20.00 profit (80.0 pts)
-        "lock_trigger_dollars": 35.0,     # Stage 2: Trigger Profit Lock at +$35.00 profit (140.0 pts)
-        "lock_amount_dollars": 25.0,      # Stage 2: Lock $25.00 profit into SL (100.0 pts)
-        "lock2_trigger_dollars": 60.0,    # Stage 3: Trigger Profit Lock 2 at +$60.00 profit (240.0 pts)
-        "lock2_amount_dollars": 45.0,     # Stage 3: Lock $45.00 profit into SL (180.0 pts)
-        "max_sl_dollars": 36.0,           # Max Initial Risk: $36.00 USD (144.0 index pts room)
-        "sl_atr_mult": 1.5,
-        "currency": "USD"
+        "currency": "USD",
     }
+    for sym, spec in CALIBRATED_ASSET_SPECS.items()
 }
 
 def get_dollar_per_pt(symbol, lot):
@@ -172,7 +136,7 @@ LAST_CLOSED_TIME  = _load_closed_time()
 
 
 def apply_ai_learned_settings():
-    """Loads dynamically tuned parameters from the AI Auto-Learning Brain, strictly preserving institutional swing thresholds."""
+    """Loads dynamically tuned parameters from the AI Auto-Learning Brain within calibrated Pure PA bounds."""
     cfg_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_learned_m15.json")
     if os.path.exists(cfg_file):
         try:
@@ -181,43 +145,94 @@ def apply_ai_learned_settings():
 
             symbols_cfg = c.get("symbols_config", {})
             for sym, asset_cfg in ASSET_CONFIGS.items():
+                spec = CALIBRATED_ASSET_SPECS.get(sym, {})
                 learned = symbols_cfg.get(sym, {})
                 if not learned:
                     learned = {
-                        "tp_dollars": c.get("gold_tp_dollars", 100.0),
-                        "tp_catalyst_dollars": c.get("gold_tp_catalyst_dollars", 120.0),
-                        "be_trigger_dollars": c.get("gold_be_trigger_dollars", 20.0),
-                        "lock_trigger_dollars": c.get("gold_lock_trigger_dollars", 35.0),
-                        "lock_amount_dollars": c.get("gold_lock_amount_dollars", 25.0),
-                        "lock2_trigger_dollars": c.get("gold_lock2_trigger_dollars", 60.0),
-                        "lock2_amount_dollars": c.get("gold_lock2_amount_dollars", 45.0)
+                        "tp_dollars": c.get("gold_tp_dollars", spec.get("tp_dollars", 55.0)),
+                        "tp_catalyst_dollars": c.get("gold_tp_catalyst_dollars", spec.get("tp_catalyst_dollars", 70.0)),
+                        "be_trigger_dollars": c.get("gold_be_trigger_dollars", spec.get("be_trigger_dollars", 28.0)),
+                        "lock_trigger_dollars": c.get("gold_lock_trigger_dollars", spec.get("lock_trigger_dollars", 44.0)),
+                        "lock_amount_dollars": c.get("gold_lock_amount_dollars", spec.get("lock_amount_dollars", 32.0)),
+                        "lock2_trigger_dollars": c.get("gold_lock2_trigger_dollars", spec.get("lock2_trigger_dollars", 56.0)),
+                        "lock2_amount_dollars": c.get("gold_lock2_amount_dollars", spec.get("lock2_amount_dollars", 45.0)),
                     }
 
-                # Safe clamp: Wholesale swing TP range ($70 - $150)
-                tp_val = float(learned.get("tp_dollars", asset_cfg.get("tp_dollars", 100.0)))
-                asset_cfg["tp_dollars"] = max(50.0, min(150.0, tp_val))
+                tp_val = float(learned.get("tp_dollars", spec.get("tp_dollars", 55.0)))
+                asset_cfg["tp_dollars"] = max(45.0, min(75.0, tp_val))
 
-                tp_cat = float(learned.get("tp_catalyst_dollars", asset_cfg.get("tp_catalyst_dollars", 120.0)))
-                asset_cfg["tp_catalyst_dollars"] = max(70.0, min(180.0, tp_cat))
+                tp_cat = float(learned.get("tp_catalyst_dollars", spec.get("tp_catalyst_dollars", 70.0)))
+                asset_cfg["tp_catalyst_dollars"] = max(60.0, min(90.0, tp_cat))
 
-                be_trig = float(learned.get("be_trigger_dollars", asset_cfg.get("be_trigger_dollars", 20.0)))
-                asset_cfg["be_trigger_dollars"] = max(15.0, min(25.0, be_trig))
+                be_trig = float(learned.get("be_trigger_dollars", spec.get("be_trigger_dollars", 28.0)))
+                asset_cfg["be_trigger_dollars"] = max(22.0, min(34.0, be_trig))
 
-                l1_trig = float(learned.get("lock_trigger_dollars", asset_cfg.get("lock_trigger_dollars", 35.0)))
-                asset_cfg["lock_trigger_dollars"] = max(25.0, min(50.0, l1_trig))
+                l1_trig = float(learned.get("lock_trigger_dollars", spec.get("lock_trigger_dollars", 44.0)))
+                asset_cfg["lock_trigger_dollars"] = max(36.0, min(52.0, l1_trig))
 
-                l1_amt = float(learned.get("lock_amount_dollars", asset_cfg.get("lock_amount_dollars", 25.0)))
-                asset_cfg["lock_amount_dollars"] = max(15.0, min(35.0, l1_amt))
+                l1_amt = float(learned.get("lock_amount_dollars", spec.get("lock_amount_dollars", 32.0)))
+                asset_cfg["lock_amount_dollars"] = max(24.0, min(38.0, l1_amt))
 
-                l2_trig = float(learned.get("lock2_trigger_dollars", asset_cfg.get("lock2_trigger_dollars", 60.0)))
-                asset_cfg["lock2_trigger_dollars"] = max(45.0, min(80.0, l2_trig))
+                l2_trig = float(learned.get("lock2_trigger_dollars", spec.get("lock2_trigger_dollars", 56.0)))
+                asset_cfg["lock2_trigger_dollars"] = max(48.0, min(68.0, l2_trig))
 
-                l2_amt = float(learned.get("lock2_amount_dollars", asset_cfg.get("lock2_amount_dollars", 45.0)))
-                asset_cfg["lock2_amount_dollars"] = max(30.0, min(60.0, l2_amt))
+                l2_amt = float(learned.get("lock2_amount_dollars", spec.get("lock2_amount_dollars", 45.0)))
+                asset_cfg["lock2_amount_dollars"] = max(36.0, min(52.0, l2_amt))
 
-                # SAFETY INVIOLABILITY: max_sl_dollars is NEVER widened or increased
+                # SAFETY INVIOLABILITY: initial max_sl_dollars ($34) is NEVER widened
+                asset_cfg["max_sl_dollars"] = float(spec.get("max_sl_dollars", 34.0))
         except Exception as e:
             logger.debug(f"[Institutional] Dynamic config load skipped: {e}")
+
+
+def check_daily_drawdown_guard():
+    """
+    Enforces strict -$50.00 daily drawdown hard stop (realized today + live floating PnL).
+    Returns (blocked: bool, daily_total: float, realized_today: float, floating_pnl: float).
+    """
+    global _DAILY_DD_ALERT_DATE
+    now_utc = datetime.now(timezone.utc)
+    now_eat = now_utc + timedelta(hours=3)
+    eat_midnight_utc = (now_eat.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=3))
+    reset_floor_utc = datetime(2026, 11, 13, 14, 50, tzinfo=timezone.utc)
+    from_utc = max(eat_midnight_utc, reset_floor_utc)
+
+    realized_today = 0.0
+    try:
+        deals = mt5.history_deals_get(from_utc, now_utc + timedelta(minutes=5))
+        if deals:
+            for d in deals:
+                if getattr(d, "entry", -1) in (mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_BY):
+                    realized_today += float(getattr(d, "profit", 0.0)) + float(getattr(d, "swap", 0.0)) + float(getattr(d, "commission", 0.0))
+    except Exception:
+        pass
+
+    floating_pnl = 0.0
+    try:
+        positions = mt5.positions_get()
+        if positions:
+            for p in positions:
+                if p.symbol in ASSET_CONFIGS:
+                    floating_pnl += float(getattr(p, "profit", 0.0)) + float(getattr(p, "swap", 0.0))
+    except Exception:
+        pass
+
+    daily_total = round(realized_today + floating_pnl, 2)
+    blocked = daily_total <= -MAX_DAILY_DRAWDOWN_USD
+    if blocked:
+        today_str = now_eat.strftime("%Y-%m-%d")
+        logger.warning(
+            f"[DailyDrawdownGuard] HARD STOP ACTIVE | Daily PnL ${daily_total:+.2f} "
+            f"(Realized ${realized_today:+.2f}, Float ${floating_pnl:+.2f}) <= -${MAX_DAILY_DRAWDOWN_USD:.2f}"
+        )
+        if _DAILY_DD_ALERT_DATE != today_str:
+            _DAILY_DD_ALERT_DATE = today_str
+            _send_personal(
+                f"🛑 <b>[Daily Drawdown Guard Triggered]</b>\n"
+                f"Today's PnL hit <b>${daily_total:+.2f}</b> (Cap: -${MAX_DAILY_DRAWDOWN_USD:.2f}).\n"
+                f"New entries paused until next session day to protect your $500 capital."
+            )
+    return blocked, daily_total, round(realized_today, 2), round(floating_pnl, 2)
 
 
 try:
@@ -376,7 +391,7 @@ def send_trade_close_broadcast(symbol, direction, open_price, close_price, pnl_u
         detail = "Break-Even Capital Protected"
 
     if reason == "REVERSAL":
-        detail = "M15 UT Bot Signal Flip Reversal"
+        detail = "Pure PA Institutional Exit"
 
     msg = (
         f"{emoji} <b>[Trade Closed — {tag}]</b>\n"
@@ -393,104 +408,16 @@ def _send_telegram(message):
     _send_personal(message)
 
 
-
-# ─── Session Filter (7:00 AM - 9:00 PM EAT / Tuesday - Friday) ──────────────────
+# ─── Session Filter (Mon-Fri London & NY Killzones) ───────────────────────────
 def is_session_active(symbol=None):
     """
-    Institutional Session Gateway (Option B - Monday Observation Only):
-    Trading execution window is strictly Tuesday to Friday, 5:00 AM to 11:00 PM EAT.
-    
-    MONDAY INSTITUTIONAL RULE:
-      - Monday (weekday == 0) is STRICT OBSERVATION ONLY.
-      - Desks and algorithms observe price establishing Monday High / Low boundaries,
-        update structural memory, and record liquidity pools without opening live trades.
-      - Protects account from choppy early-week accumulation traps & fakeouts.
-      
-    TUESDAY - FRIDAY:
-      - Active execution from 05:00 EAT to 23:00 EAT (expanded to capture early Asian momentum + full NY close).
-      - Midnight rollover blackout hours (23:00 to 05:00 EAT) and weekends (Saturday & Sunday) are blocked.
+    Pure Price Action Execution Gateway (Monday - Friday):
+      - London Killzone : 06:00 - 09:59 UTC (09:00 - 12:59 EAT)
+      - New York Session: 14:00 - 19:59 UTC (17:00 - 22:59 EAT)
+    Blocks low-liquidity Asian midnight chop (00-05 UTC), London lunch (10-13 UTC),
+    rollover spread widening (20-23 UTC), and weekends (Saturday & Sunday).
     """
-    now_utc = datetime.now(timezone.utc)
-    # EAT is UTC+3
-    now_eat = now_utc + timedelta(hours=3)
-    weekday = now_eat.weekday()  # Monday=0, Tuesday=1, ..., Friday=4, Saturday=5, Sunday=6
-    hour_eat = now_eat.hour
-
-    # 24/5 Active Trading Window: Monday 00:00 EAT to Friday 23:55 EAT
-    # Friday and Monday trading gates completely removed by user directive.
-    # Closed strictly on weekends (Saturday & Sunday when forex/commodity markets are closed).
-    if weekday in (5, 6):
-        return False
-
-    return True
-
-
-# ─── Exact TradingView Pine Script Replication ─────────────────────────────────
-def compute_m15_ut_bot(symbol, key_mult=1.0, atr_period=10, n_bars=300):
-    mt5.symbol_select(symbol, True)
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, n_bars)
-    if rates is None or len(rates) < 50:
-        return None
-        
-    df = pd.DataFrame(rates)
-    df['prev_close'] = df['close'].shift(1)
-    df['tr'] = df.apply(
-        lambda r: max(
-            r['high'] - r['low'],
-            abs(r['high'] - r['prev_close']) if not np.isnan(r['prev_close']) else 0,
-            abs(r['low']  - r['prev_close']) if not np.isnan(r['prev_close']) else 0,
-        ), axis=1)
-
-    # Exact Pine Script ta.rma(tr, atr_period)
-    tr_vals = df['tr'].values
-    atr_tv = np.zeros(len(df))
-    atr_tv[:atr_period] = tr_vals[:atr_period].mean()
-    for i in range(atr_period, len(df)):
-        atr_tv[i] = (tr_vals[i] + (atr_period - 1.0) * atr_tv[i-1]) / float(atr_period)
-    df['atr_tv'] = atr_tv
-
-    # Exact Pine Script f_calcTrailingStop(prev, close, nLoss)
-    closes = df['close'].values
-    stops = np.zeros(len(closes))
-    
-    for i in range(1, len(closes)):
-        nLoss = key_mult * atr_tv[i]
-        prev_stop = stops[i-1]
-        c_price = closes[i]
-        p_price = closes[i-1]
-        
-        if c_price > prev_stop and p_price > prev_stop:
-            stops[i] = max(prev_stop, c_price - nLoss)
-        elif c_price < prev_stop and p_price < prev_stop:
-            stops[i] = min(prev_stop, c_price + nLoss)
-        elif c_price > prev_stop:
-            stops[i] = c_price - nLoss
-        else:
-            stops[i] = c_price + nLoss
-
-    # Index -2 is the latest fully confirmed/closed M15 bar
-    last_closed_idx = -2
-    p_close = closes[last_closed_idx - 1]
-    p_stop  = stops[last_closed_idx - 1]
-    c_close = closes[last_closed_idx]
-    c_stop  = stops[last_closed_idx]
-    c_atr   = atr_tv[last_closed_idx]
-    bar_time = int(df['time'].iloc[last_closed_idx])
-    
-    # Exact TradingView HPotter UT Bot crossover / crossunder
-    cross_up = (p_close <= p_stop) and (c_close > c_stop)
-    cross_dn = (p_close >= p_stop) and (c_close < c_stop)
-    current_trend = "BUY" if c_close > c_stop else "SELL"
-    
-    return {
-        "cross_up": cross_up,
-        "cross_dn": cross_dn,
-        "trend": current_trend,
-        "close": c_close,
-        "stop": c_stop,
-        "atr": c_atr,
-        "bar_time": bar_time
-    }
+    return is_killzone_active()
 
 
 # ─── Position Management & Break-Even Shield ──────────────────────────────────
@@ -520,10 +447,11 @@ def manage_open_positions(symbol, cfg, catalyst_state):
         is_be_active = ACTIVE_BE_TRACKED.get(ticket, False)
         if not is_be_active:
             be_condition = False
-            be_target_usd = cfg.get('be_trigger_dollars', 15.0)
+            be_target_usd = cfg.get('be_trigger_dollars', 28.0)
             if dollar_gain >= be_target_usd:
                 be_condition = True
-                be_buffer = 0.5  # Lock +0.5 pt ($1.00 USD) on Gold to cover spread
+                # Lock +$2.00 USD consistently across Gold/Oil/US30 to cover spread cleanly
+                be_buffer = (2.0 / dollar_per_point) if dollar_per_point > 0 else 0.5
                 
             if be_condition:
                 new_sl = entry_price + be_buffer if pos_type == "BUY" else entry_price - be_buffer
@@ -731,42 +659,68 @@ def execute_order(symbol, order_type, lot, sl, tp, catalyst_desc="Standard", new
         return None
 
 
-# ─── Overnight Spread-Buffer Gate (11:00 PM EAT) ──────────────────────────────
+# ─── Capital Protection & Friday Weekend Close Gate ───────────────────────────
 def run_pre_session_secure_gate():
     """
-    Overnight Spread-Buffer Gate — fires ONCE per day between 23:00 and 23:10 EAT.
-
-    Philosophy: Let overnight trades run — they can be very profitable.
-    The danger is NOT the market moving against you; it's the broker's rollover
-    spread spike (21:00-01:00 UTC) accidentally touching a tight SL.
-    The solution is to give every trade enough SL room that the spread can't reach it.
-
-    Decision logic per open position at 11:00 PM EAT:
-
-      1. Already secured (SL at or above entry for BUY, or at/below entry for SELL)
-         -> Leave it completely alone. Profit lock / BE already handles this.
-
-      2. Healthy trade (not deeply losing, SL still at original position):
-         -> Widen SL to give $45 of room from current price.
-            $45 = ~3x the worst-case Exness overnight spread on Gold/Silver.
-            This means even a $3 spread spike cannot trigger the stop.
-            The trade runs freely overnight with a real price-based SL,
-            not a spread-based accidental stop.
-
-      3. Deeply losing trade (floating loss > -$25):
-         -> Close it. No point holding a trade that's already badly wrong
-            overnight with an even wider SL — that's just more risk on a
-            losing idea.
-
-    Telegram DM summarises every action. Gate fires only once per EAT date.
+    Capital & Weekend Protection Gate:
+      1. Friday Weekend Close Guard (Friday >= 20:45 UTC / 23:45 EAT):
+         -> Flattens open managed positions before weekend market close so
+            weekend gap risk cannot damage the $500 account.
+      2. Nightly Audit (23:00 - 23:10 EAT Mon-Thu):
+         -> Never widens SL past the strict -$34 initial risk cap.
+         -> Closes deep losing trades (< -$25.00 floating loss).
+         -> Moves profitable trades (>= +$20.00) without BE yet to Entry + $2.00 buffer.
     """
     global PRE_SESSION_GATE_FIRED
 
     now_utc = datetime.now(timezone.utc)
     now_eat = now_utc + timedelta(hours=3)
 
-    # Only run Monday-Friday
-    if now_eat.weekday() in (5, 6):
+    # 1. Friday Weekend Close Protection (Friday >= 20:45 UTC / 23:45 EAT)
+    if now_utc.weekday() == 4 and (now_utc.hour > 20 or (now_utc.hour == 20 and now_utc.minute >= 45)):
+        fri_str = now_utc.strftime("%Y-%m-%d")
+        open_managed = [p for p in (mt5.positions_get() or []) if p.symbol in ASSET_CONFIGS]
+        if open_managed:
+            closed_lines = []
+            for pos in open_managed:
+                symbol = pos.symbol
+                ticket = pos.ticket
+                pos_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
+                tick = mt5.symbol_info_tick(symbol)
+                if not tick:
+                    continue
+                close_price = tick.bid if pos_type == "BUY" else tick.ask
+                close_type = mt5.ORDER_TYPE_SELL if pos_type == "BUY" else mt5.ORDER_TYPE_BUY
+                req = {
+                    "action": mt5.TRADE_ACTION_DEAL,
+                    "symbol": symbol,
+                    "volume": pos.volume,
+                    "type": close_type,
+                    "position": ticket,
+                    "price": close_price,
+                    "deviation": 20,
+                    "magic": 20250831,
+                    "comment": "WEEKEND_CLOSE_GUARD",
+                    "type_time": mt5.ORDER_TIME_GTC,
+                    "type_filling": mt5.ORDER_FILLING_IOC,
+                }
+                res = mt5.order_send(req)
+                if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                    LAST_CLOSED_TIME[symbol] = int(now_utc.timestamp())
+                    _save_closed_time(LAST_CLOSED_TIME)
+                    closed_lines.append(f"🔒 <b>{symbol}</b> #{ticket} ({pos_type}): ${pos.profit:+.2f}")
+                    logger.info(f"[WeekendGuard] Closed {symbol} #{ticket} prior to weekend close (${pos.profit:+.2f})")
+            if closed_lines and getattr(run_pre_session_secure_gate, "_weekend_date", None) != fri_str:
+                run_pre_session_secure_gate._weekend_date = fri_str
+                _send_personal(
+                    "🏁 <b>[Friday Weekend Close Protection — 23:45 EAT]</b>\n\n"
+                    + "\n".join(closed_lines)
+                    + "\n\nAll positions flattened cleanly before weekend gap risk."
+                )
+        return
+
+    # Only run nightly audit Monday-Thursday
+    if now_eat.weekday() in (4, 5, 6):
         return
 
     # Window: 23:00 - 23:10 EAT (11 PM)
@@ -774,28 +728,22 @@ def run_pre_session_secure_gate():
     if not gate_open:
         return
 
-    # Fire only once per calendar day (EAT date)
     today_str = now_eat.strftime("%Y-%m-%d")
     if PRE_SESSION_GATE_FIRED == today_str:
         return
 
     PRE_SESSION_GATE_FIRED = today_str
 
-    # Gather all open positions across live assets
     all_positions = mt5.positions_get()
     if not all_positions:
-        logger.info("[OvernightGate] No open positions at 23:00 EAT — clean night ahead.")
+        logger.info("[NightlyGuard] No open positions at 23:00 EAT — clean night ahead.")
         _send_personal(
-            "🌙 <b>[Overnight Gate — 23:00 EAT]</b>\n"
-            "No open positions. Clean night, no overnight exposure. ✅"
+            "🌙 <b>[Nightly Capital Guard — 23:00 EAT]</b>\n"
+            "No open positions. Zero overnight exposure. ✅"
         )
         return
 
     actions_taken = []
-
-    # $45 overnight buffer — comfortably above worst-case Exness rollover spread
-    OVERNIGHT_BUFFER_USD = 45.0
-    # Cut-off: close anything losing more than this at 11 PM (bad trade, not worth wider SL)
     DEEP_LOSS_CUTOFF_USD = -25.0
 
     for pos in all_positions:
@@ -803,38 +751,32 @@ def run_pre_session_secure_gate():
         ticket   = pos.ticket
         pos_type = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
         entry    = pos.price_open
-        current  = pos.price_current
         sl       = pos.sl
         tp       = pos.tp
-        profit   = pos.profit   # floating P&L in USD
+        profit   = pos.profit
 
         cfg = ASSET_CONFIGS.get(symbol)
         if cfg is None:
-            continue   # Not a managed asset — skip
+            continue
 
         lot           = cfg['lot']
         dollar_per_pt = get_dollar_per_pt(symbol, lot)
         dp            = _sym_digits(symbol)
-        buf_pts       = (OVERNIGHT_BUFFER_USD / dollar_per_pt) if dollar_per_pt > 0 else 0.0
 
-        # ── Case 1: Already secured at BE or profit lock — leave it alone ────
+        # Case 1: Already secured at BE or profit lock
         already_secured = (
             (pos_type == "BUY"  and sl >= entry) or
             (pos_type == "SELL" and sl <= entry and sl > 0)
         )
         if already_secured:
-            logger.info(
-                "[OvernightGate] " + symbol + " #" + str(ticket) +
-                " already at BE/Lock (SL=" + str(round(sl, dp)) + ") — no change needed."
-            )
+            logger.info(f"[NightlyGuard] {symbol} #{ticket} already secured at BE/Lock (SL={round(sl, dp)}).")
             actions_taken.append(
-                "✅ <b>" + symbol + "</b> #" + str(ticket) + " (" + pos_type + ") | "
-                "Profit: <b>+$" + str(round(profit, 2)) + "</b>\n"
-                "   ➔ Already secured at BE/Lock. Running overnight freely."
+                f"✅ <b>{symbol}</b> #{ticket} ({pos_type}) | Profit: <b>+${profit:.2f}</b>\n"
+                f"   ➔ Already secured at BE/Lock."
             )
             continue
 
-        # ── Case 2: Deeply losing — close it, no point widening SL on a bad trade ──
+        # Case 2: Deeply losing — cut early rather than widening risk
         if profit < DEEP_LOSS_CUTOFF_USD:
             tick        = mt5.symbol_info_tick(symbol)
             close_price = tick.bid if pos_type == "BUY" else tick.ask
@@ -848,88 +790,52 @@ def run_pre_session_secure_gate():
                 "price":        close_price,
                 "deviation":    20,
                 "magic":        20250831,
-                "comment":      "OVERNIGHT_GATE_DEEPLOSS",
+                "comment":      "NIGHTLY_GUARD_DEEPLOSS",
                 "type_time":    mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
             res = mt5.order_send(req)
-            pnl_str = "-$" + str(round(abs(profit), 2))
-            if res.retcode == mt5.TRADE_RETCODE_DONE:
-                logger.info(
-                    "[OvernightGate] " + symbol + " #" + str(ticket) +
-                    " CLOSED (deep loss " + pnl_str + "). Not worth overnight SL buffer."
-                )
+            pnl_str = f"-${abs(profit):.2f}"
+            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"[NightlyGuard] {symbol} #{ticket} CLOSED (deep loss {pnl_str}).")
                 actions_taken.append(
-                    "🛑 <b>" + symbol + "</b> #" + str(ticket) + " (" + pos_type + ") | "
-                    "Loss: <b>" + pnl_str + "</b>\n"
-                    "   ➔ Closed — deeply losing trade, not worth overnight exposure."
+                    f"🛑 <b>{symbol}</b> #{ticket} ({pos_type}) | Loss: <b>{pnl_str}</b>\n"
+                    f"   ➔ Closed — deep loss cut strictly."
                 )
-                now_ts = int(now_utc.timestamp())
-                LAST_CLOSED_TIME[symbol] = now_ts
+                LAST_CLOSED_TIME[symbol] = int(now_utc.timestamp())
                 _save_closed_time(LAST_CLOSED_TIME)
             else:
-                logger.error(
-                    "[OvernightGate] Failed to close deep-loss " + symbol +
-                    " #" + str(ticket) + ": " + res.comment
-                )
-                actions_taken.append(
-                    "⚠️ <b>" + symbol + "</b> #" + str(ticket) +
-                    " — CLOSE FAILED: " + res.comment
-                )
+                logger.error(f"[NightlyGuard] Failed to close deep-loss {symbol} #{ticket}: {getattr(res, 'comment', 'ERR')}")
             continue
 
-        # ── Case 3: Healthy trade — widen SL to $45 from current price ───────
-        # Calculate new SL that gives $45 of room from where price is RIGHT NOW.
-        # This means the overnight spread (max ~$3) cannot accidentally trigger it.
-        if pos_type == "BUY":
-            new_sl = round(current - buf_pts, dp)
-            # Give room: new_sl is lower than current SL (widens stop to absorb rollover spikes)
-            if new_sl < sl or sl == 0:
-                modify_sl(ticket, symbol, new_sl, tp)
-                action_desc = (
-                    f"$45 spread-buffer SL set at {new_sl:.{dp}f} (was {sl:.{dp}f})"
-                )
-            else:
-                action_desc = (
-                    f"SL already has sufficient room ({sl:.{dp}f}) — no change"
-                )
+        # Case 3: In good profit (>= +$20) — lock BE + $2 buffer; NEVER widen initial $34 SL
+        if profit >= 20.0:
+            be_buf = (2.0 / dollar_per_pt) if dollar_per_pt > 0 else 0.5
+            new_sl = round((entry + be_buf) if pos_type == "BUY" else (entry - be_buf), dp)
+            modify_sl(ticket, symbol, new_sl, tp)
+            ACTIVE_BE_TRACKED[ticket] = True
+            update_trade_be(ticket)
+            action_desc = f"BE + $2.00 buffer secured at {new_sl:.{dp}f} (profit +${profit:.2f})"
         else:
-            new_sl = round(current + buf_pts, dp)
-            # Give room: new_sl is higher than current SL for SELL
-            if new_sl > sl or sl == 0:
-                modify_sl(ticket, symbol, new_sl, tp)
-                action_desc = (
-                    f"$45 spread-buffer SL set at {new_sl:.{dp}f} (was {sl:.{dp}f})"
-                )
-            else:
-                action_desc = (
-                    f"SL already has sufficient room ({sl:.{dp}f}) — no change"
-                )
+            action_desc = f"Hard $34 SL preserved at {sl:.{dp}f} (never widened)"
 
-        pnl_str = ("+$" + str(round(profit, 2))) if profit >= 0 else ("-$" + str(round(abs(profit), 2)))
-        logger.info(
-            "[OvernightGate] " + symbol + " #" + str(ticket) +
-            " | Profit: " + pnl_str + " | " + action_desc
-        )
+        pnl_str = (f"+${profit:.2f}") if profit >= 0 else (f"-${abs(profit):.2f}")
+        logger.info(f"[NightlyGuard] {symbol} #{ticket} | Profit: {pnl_str} | {action_desc}")
         actions_taken.append(
-            "🌙 <b>" + symbol + "</b> #" + str(ticket) + " (" + pos_type + ") | "
-            "Profit: <b>" + pnl_str + "</b>\n"
-            "   ➔ " + action_desc
+            f"🌙 <b>{symbol}</b> #{ticket} ({pos_type}) | Profit: <b>{pnl_str}</b>\n"
+            f"   ➔ {action_desc}"
         )
 
-    # Telegram summary
     if actions_taken:
-        summary = "\n".join(actions_taken)
         _send_personal(
-            "🌙 <b>[Overnight Gate Executed — 23:00 EAT]</b>\n\n"
-            + summary + "\n\n"
-            "All trades protected from overnight rollover spread. "
-            "Genuine price moves will be caught. Good night! 🌙"
+            "🌙 <b>[Nightly Capital Guard — 23:00 EAT]</b>\n\n"
+            + "\n".join(actions_taken)
+            + "\n\nStrict $34 initial SL preserved on all positions."
         )
     else:
         _send_personal(
-            "🌙 <b>[Overnight Gate — 23:00 EAT]</b>\n"
-            "No managed positions found. Clean night ahead. ✅"
+            "🌙 <b>[Nightly Capital Guard — 23:00 EAT]</b>\n"
+            "No managed positions open. Clean night ahead. ✅"
         )
 
 
@@ -937,12 +843,12 @@ def run_pre_session_secure_gate():
 def run_institutional_cycle():
     """
     Called autonomously every cycle from alphaedge.py.
-    Executes the Institutional Multi-Timeframe (MTF) & Whale Flow Swing Engine.
+    Executes the Pure Price Action 3-Timeframe Institutional Swing Engine.
     Filters:
-      1. H4 Dealing Range (Strict Discount for BUY, Strict Premium for SELL - never enters halfway!).
-      2. Liquidity Sweep / Stop Hunt (Bottom accumulation / Top distribution).
-      3. Whale Tick Volume surge >= 1.6x 20-period moving average.
-      4. Pre-Trade Real-Time Backtest Gate (validates historical expectancy before execution).
+      1. TF1 (D1 + H4): 3-state fractal structure (NOT_COUNTER) & 75%/25% active leg equilibrium.
+      2. TF2 (Pools + M15): Sweeps of PDH/PDL, Asian H/L, or Closed H4 H/L with M15 anti-crash validation.
+      3. TF3 (M5): 2-bar sweep reclaim + directional engulf/turn + anti-climax range guard.
+      4. Guards: Mon-Fri London/NY Killzones, -$50 daily DD hard stop, max 2 concurrent trades, 1h cooldown.
     """
     global NEWS_ENGINE, INST_ENGINE, PRE_BACKTESTER, STRUCT_MEMORY, LAST_EXECUTED_BAR
     if NEWS_ENGINE is None:
@@ -954,11 +860,11 @@ def run_institutional_cycle():
     if STRUCT_MEMORY is None:
         STRUCT_MEMORY = StructuralMemory()
 
-    # ── Pre-Session Overnight Protection Gate (19:45–19:55 EAT, once per day) ─
+    # ── Capital Guard & Friday Weekend-Close Protection ─────────────────────
     try:
         run_pre_session_secure_gate()
     except Exception as _gate_err:
-        logger.error("[PreSessionGate] Unexpected error in gate: " + str(_gate_err))
+        logger.error("[CapitalGuard] Unexpected error in gate: " + str(_gate_err))
 
     try:
         NEWS_ENGINE.sync_calendar()
@@ -983,8 +889,8 @@ def run_institutional_cycle():
     except Exception:
         pass
 
-    session_ok = is_session_active()
     apply_ai_learned_settings()
+    dd_blocked, daily_pnl, _, _ = check_daily_drawdown_guard()
 
     for symbol, cfg in ASSET_CONFIGS.items():
         try:
@@ -992,8 +898,6 @@ def run_institutional_cycle():
             manage_open_positions(symbol, cfg, catalyst)
 
             # ── 0. 24/5 Structural Observation (session-agnostic) ─────────────────
-            # Structural memory updates on EVERY cycle regardless of trading session.
-            # The bot always knows the market structure even during off-hours.
             STRUCT_MEMORY.update_structure(symbol)
             struct_ctx = STRUCT_MEMORY.get_context(symbol)
             logger.debug(
@@ -1010,30 +914,27 @@ def run_institutional_cycle():
             tick = mt5.symbol_info_tick(symbol)
             curr_price = tick.bid if tick else 0.0
 
-            # ── 1. Evaluate Institutional MTF & Whale Flow Setup ─────────────────
+            # ── 1. Evaluate Pure Price Action 3-TF Setup ───────────────────────
             setup = INST_ENGINE.evaluate_institutional_setup(symbol)
             deal_range = setup.get('deal_range')
             loc_pct = f"{deal_range['location_pct']:.1f}%" if deal_range else "N/A"
-            vol_ratio = setup.get('vol_ratio', 1.0)
-            whale_str = f"WHALE {vol_ratio}x" if setup.get('whale_detected') else f"{vol_ratio}x"
 
-            positions = mt5.positions_get(symbol=symbol)
-            has_pos = len(positions) > 0 if positions else False
+            all_live_pos = mt5.positions_get() or []
+            total_open_managed = sum(1 for p in all_live_pos if p.symbol in ASSET_CONFIGS)
+            positions = [p for p in all_live_pos if p.symbol == symbol]
+            has_pos = len(positions) > 0
 
             sym_session_ok = is_session_active(symbol)
-            session_tag = "ACTIVE (24/5)" if sym_session_ok else "CLOSED (Weekend)"
+            session_tag = "KILLZONE" if sym_session_ok else ("DAILY_DD_STOP" if dd_blocked else "OFF_HOURS")
             state_str = f"POS({len(positions)})" if has_pos else (f"SETUP({setup.get('direction')})" if setup.get('valid') else "WAIT")
 
             logger.info(
-                f"[Scanner] {symbol:<7} {curr_price:>8.2f} | Range: {loc_pct:>6} | Vol: {whale_str:>10} | {state_str:<8} | {session_tag}"
+                f"[Scanner] {symbol:<7} {curr_price:>8.2f} | H4 Leg: {loc_pct:>6} | {setup.get('ut_bot', 'PA_WAIT'):>10} | {state_str:<10} | {session_tag} (DayPnL ${daily_pnl:+.2f})"
             )
-            if setup.get('valid') or setup.get('whale_detected'):
-                logger.info(f"   ⚡ [{symbol}] {setup.get('direction')} Signal Ready: {setup.get('reason')} | UT: {setup.get('ut_bot', 'NONE')}")
+            if setup.get('valid'):
+                logger.info(f"   ⚡ [{symbol}] {setup.get('direction')} Pure PA Ready: {setup.get('reason')}")
 
-            positions = mt5.positions_get(symbol=symbol)
-            has_pos = len(positions) > 0 if positions else False
-
-            # Detect position closure (whether closed manually by user or automatically by TP/SL)
+            # Detect position closure to enforce 60-min cooldown
             was_open = WAS_OPEN_TRACKED.get(symbol, False)
             if was_open and not has_pos:
                 now_closure_ts = int(datetime.now(timezone.utc).timestamp())
@@ -1045,86 +946,49 @@ def run_institutional_cycle():
                 )
             WAS_OPEN_TRACKED[symbol] = has_pos
 
-            # Block entries during high-impact news window
+            # Hard session, daily drawdown, news freeze, and Friday close cutoff guards
+            now_dt = datetime.now(timezone.utc)
+            fri_late = (now_dt.weekday() == 4 and (now_dt.hour > 20 or (now_dt.hour == 20 and now_dt.minute >= 30)))
             news_blocks_entry = catalyst.get('state') in ('PRE_NEWS_FREEZE', 'NEWS_SPIKE_BLOCK')
-            sym_session_ok = is_session_active(symbol)
-            if not sym_session_ok or news_blocks_entry:
+            if dd_blocked or not sym_session_ok or news_blocks_entry or fri_late:
                 continue
 
-            # Check position state and enforce 60-Minute Cooldown from BOTH last execution AND last closure!
-            now_dt = datetime.now(timezone.utc)
+            # Closed M5 bar timestamp + 60-minute post-entry/closure cooldown + max 2 concurrent
+            m5_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 3)
             now_ts = int(now_dt.timestamp())
             m15_minute = (now_dt.minute // 15) * 15
             now_m15_ts = int(now_dt.replace(minute=m15_minute, second=0, microsecond=0).timestamp())
+            cur_bar_ts = int(m5_rates[-2]['time']) if (m5_rates is not None and len(m5_rates) >= 2) else now_m15_ts
+
             last_exec_ts = LAST_EXECUTED_BAR.get(symbol, 0)
             last_closed_ts = LAST_CLOSED_TIME.get(symbol, 0)
 
-            if has_pos or (now_ts - last_exec_ts < 3600) or (now_ts - last_closed_ts < 3600):
+            if (
+                has_pos
+                or total_open_managed >= MAX_CONCURRENT_POSITIONS
+                or cur_bar_ts == last_exec_ts
+                or (now_ts - last_exec_ts < 3600)
+                or (now_ts - last_closed_ts < 3600)
+            ):
                 continue
 
             if not setup.get('valid'):
-                # Not a valid structural bottom/top setup — strictly wait, do not chase halfway!
                 continue
 
             target_dir = setup['direction']  # "BUY" or "SELL"
 
-            # ── 2.5 Structural Confluence Check (Regime + Weekly EQ) ─────────────
-            # Institutional rule: only trade in the direction of the weekly regime.
-            # In EXPANSION_UP   — only take BUY setups (price in Discount zone).
-            # In EXPANSION_DOWN — only take SELL setups (price in Premium zone).
-            # In RANGE_BOUND    — both directions allowed, use weekly EQ as guide.
-            regime = struct_ctx.get('regime', 'UNKNOWN')
-            in_discount = STRUCT_MEMORY.is_in_weekly_discount(symbol, curr_price)
-            in_premium  = STRUCT_MEMORY.is_in_weekly_premium(symbol, curr_price)
-
-            regime_allows = True
-            if regime == "EXPANSION_UP" and target_dir == "SELL":
-                regime_allows = False
-                logger.info(
-                    f"[StructuralFilter] {symbol} SELL blocked — Regime is EXPANSION_UP "
-                    f"(wait for pullback to premium before shorting)."
-                )
-            elif regime == "EXPANSION_DOWN" and target_dir == "BUY":
-                regime_allows = False
-                logger.info(
-                    f"[StructuralFilter] {symbol} BUY blocked — Regime is EXPANSION_DOWN "
-                    f"(wait for bounce to discount before longing)."
-                )
-
-            # Strict Institutional Safeguard: Never SELL in Deep Discount (< 35%) or BUY in Deep Premium (> 65%)
-            loc_pct_val = setup.get('deal_range', {}).get('location_pct', 50.0)
-            if target_dir == "SELL" and loc_pct_val < 35.0:
-                regime_allows = False
-                logger.info(
-                    f"[StructuralFilter] {symbol} SELL blocked — Dealing Range is in Deep Discount ({loc_pct_val:.1f}% < 35%). "
-                    f"Selling the swing bottom is strictly prohibited."
-                )
-            elif target_dir == "BUY" and loc_pct_val > 65.0:
-                regime_allows = False
-                logger.info(
-                    f"[StructuralFilter] {symbol} BUY blocked — Dealing Range is in Deep Premium ({loc_pct_val:.1f}% > 65%). "
-                    f"Buying the swing top is strictly prohibited."
-                )
-
-            if not regime_allows:
-                continue
-
-            # ── 3. Pre-Trade Real-Time Backtest Gate ────────────────────────────
-
-            # Enforce structural SL room and dynamic dollar profit expansion targets
+            # ── 2. Calibrated Dollar Targets & Strict -$34 SL ────────────────
             dollar_per_pt = get_dollar_per_pt(symbol, cfg['lot'])
-            max_sl_usd = cfg.get('max_sl_dollars', 36.0)
+            max_sl_usd = cfg.get('max_sl_dollars', 34.0)
 
-            # Volatility & Catalyst Target Expansion
             if catalyst.get('state') == 'CATALYST_IMPULSE':
                 vol_boost = catalyst.get('volatility_multiplier', 1.0)
-                tp_target_usd = cfg.get('tp_catalyst_dollars', 120.0) * vol_boost
+                tp_target_usd = cfg.get('tp_catalyst_dollars', 70.0) * vol_boost
             else:
-                tp_target_usd = cfg.get('tp_dollars', 100.0)
+                tp_target_usd = cfg.get('tp_dollars', 55.0)
 
-            target_tp_dist = tp_target_usd / dollar_per_pt if dollar_per_pt > 0 else 50.0
-            # Strict dollar risk: capped strictly at max_sl_dollars, never ballooned
-            target_sl_dist = max_sl_usd / dollar_per_pt if dollar_per_pt > 0 else 18.0
+            target_tp_dist = tp_target_usd / dollar_per_pt if dollar_per_pt > 0 else 27.5
+            target_sl_dist = max_sl_usd / dollar_per_pt if dollar_per_pt > 0 else 17.0
 
             order_price = tick.ask if target_dir == "BUY" else tick.bid
             if target_dir == "BUY":
@@ -1134,23 +998,22 @@ def run_institutional_cycle():
                 sl_price = order_price + target_sl_dist
                 tp_price = order_price - target_tp_dist
 
-            # ── 3. Approved: Execute High-Conviction Institutional Swing Order ────
+            # ── 3. Execute High-Conviction Pure Price Action 3-TF Order ──────
             dp = _sym_digits(symbol)
-            event_name = catalyst.get('event', 'Institutional Flow')
-            approach_name = setup.get('approach_type', 'Exhaustion Sweep')
-            mode_desc = f"H4 ({loc_pct}) | M15 UT {setup.get('ut_bot', '')} | {approach_name}"
-            deal_loc_desc = f"Dealing Range: {loc_pct}"
-            rr_val = round(target_tp_dist / target_sl_dist, 2) if target_sl_dist > 0 else 1.5
+            event_name = catalyst.get('event', 'Pure PA Flow')
+            pa_tag = setup.get('ut_bot', 'PA_3TF')
+            mode_desc = f"Pure PA 3-TF | {pa_tag} | H4 Leg {loc_pct}"
+            deal_loc_desc = f"H4 Swing Leg: {loc_pct}"
+            rr_val = round(target_tp_dist / target_sl_dist, 2) if target_sl_dist > 0 else 1.62
 
-            order_price = tick.ask if target_dir == "BUY" else tick.bid
             logger.info(
-                f"[Institutional MTF] EXECUTING APPROVED {target_dir} on {symbol}! "
-                f"Price: {order_price:.{dp}f} | SL: {sl_price:.{dp}f} | TP: {tp_price:.{dp}f} | "
-                f"Trigger: H4 Structure + M15 UT Bot ({approach_name})"
+                f"[PurePA 3-TF] EXECUTING {target_dir} on {symbol}! "
+                f"Price: {order_price:.{dp}f} | SL: {sl_price:.{dp}f} (-${max_sl_usd:.0f}) | "
+                f"TP: {tp_price:.{dp}f} (+${tp_target_usd:.0f}) | {setup.get('reason')}"
             )
 
             if execute_order(symbol, target_dir, cfg['lot'], sl_price, tp_price, mode_desc, event_name, setup.get('sweep_level', 0.0), 0.0, deal_range_loc=deal_loc_desc, rr_ratio=rr_val):
-                LAST_EXECUTED_BAR[symbol] = now_m15_ts
+                LAST_EXECUTED_BAR[symbol] = cur_bar_ts
                 _save_bar_state(LAST_EXECUTED_BAR)
 
 

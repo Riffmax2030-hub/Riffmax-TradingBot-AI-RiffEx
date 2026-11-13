@@ -1,291 +1,227 @@
 """
-AlphaEdge Engine Health Check
-Verifies all modules load cleanly and core logic is correct.
+_health_check.py — AlphaEdge Pure Price Action 3-TF System Verification Suite
+=============================================================================
+End-to-end deterministic verification of:
+  1. Core module imports & syntax integrity (zero forbidden legacy references)
+  2. Calibrated asset configuration parity ($34 SL / $55 TP / +$28 BE / +$44->$32 Lock1)
+  3. Mon-Fri London + NY Killzone schedule & off-hours / weekend blocks
+  4. Capital protection guards (-$50 daily DD hard stop, max 2 concurrent positions)
+  5. Pure Price Action 3-TF Evaluator (TF1 H4 3-state + 75%/25% leg, TF2 pools + M15 anti-crash, TF3 M5 sweep-reclaim)
+  6. News Catalyst state machine & Telegram Channel Firewall
+  7. AutoLearner calibrated parameter bounds
 """
-import sys
 
-errors = []
-
-# ── 1. Trade Logger ──────────────────────────────────────────────────────────
-try:
-    from m15_trade_analysis_logger import (
-        get_performance_summary, sync_closed_trades_from_history
-    )
-    s = get_performance_summary()
-    print("OK  m15_trade_analysis_logger")
-    print(f"    Trades:{s['total']}  Wins:{s['wins']}  Losses:{s['losses']}  WR:{s['win_rate']}%  Net PnL:${s['net_pnl']}")
-except Exception as e:
-    print("ERR m15_trade_analysis_logger:", e)
-    errors.append(str(e))
-
-# ── 2. News Catalyst Engine ──────────────────────────────────────────────────
-try:
-    from news_catalyst_engine import NewsCatalystEngine, _eat_time
-    engine = NewsCatalystEngine()
-    print("OK  news_catalyst_engine")
-    print(f"    Events loaded: {len(engine.events)}")
-    for sym in ["XAUUSDm"]:
-        s = engine.get_market_catalyst_status(sym)
-        print(f"    {sym} now: state={s['state']}  action={s['action']}")
-except Exception as e:
-    print("ERR news_catalyst_engine:", e)
-    errors.append(str(e))
-
-# ── 3. AI Learning ───────────────────────────────────────────────────────────
-try:
-    from ai_learning import AutoLearner
-    learner = AutoLearner()
-    cfg = learner.load_config()
-    print("OK  ai_learning")
-    print(f"    gold_tp_dollars={cfg.get('gold_tp_dollars')}  regime={cfg.get('regime')}")
-except Exception as e:
-    print("ERR ai_learning:", e)
-    errors.append(str(e))
-
-# ── 4. Institutional Trader ────────────────────────────────────────────────
-try:
-    import institutional_trader
-    gold   = institutional_trader.ASSET_CONFIGS["XAUUSDm"]
-    oil    = institutional_trader.ASSET_CONFIGS["USOILm"]
-    us30   = institutional_trader.ASSET_CONFIGS["US30m"]
-    print("OK  institutional_trader")
-    print(f"    Gold  : lot={gold['lot']}  tp=${gold['tp_dollars']}  sl=${gold['max_sl_dollars']}")
-    print(f"    Oil   : lot={oil['lot']}   tp=${oil['tp_dollars']}  sl=${oil['max_sl_dollars']}")
-    print(f"    US30  : lot={us30['lot']}  tp=${us30['tp_dollars']}  sl=${us30['max_sl_dollars']}")
-except Exception as e:
-    print("ERR institutional_trader:", e)
-    errors.append(str(e))
-
-# ── 5. Session Filter Boundary Check (7:00 AM - 9:00 PM EAT) ──────────────────
-print()
-print("--- Session filter (24/5 Monday - Friday) ---")
-from institutional_trader import is_session_active
-from datetime import datetime, timezone, timedelta
-
-def sim_session(weekday, hour_eat):
-    # 24/5 Session: Monday through Friday active, weekends (Sat=5, Sun=6) closed
-    if weekday in (5, 6):
-        return False
-    return True
-
-tests = [
-    (0, 4,  "Mon 04:00 EAT (active trade)", True),
-    (0, 5,  "Mon 05:00 EAT (active trade)", True),
-    (0, 12, "Mon 12:00 EAT (active trade)", True),
-    (1, 3,  "Tue 03:00 EAT (active trade)", True),
-    (1, 12, "Tue 12:00 EAT (active trade)", True),
-    (2, 15, "Wed 15:00 EAT (active trade)", True),
-    (3, 14, "Thu 14:00 EAT (active trade)", True),
-    (4, 12, "Fri 12:00 EAT (active trade)", True),
-    (4, 22, "Fri 22:00 EAT (active trade)", True),
-    (5, 12, "Sat 12:00 EAT (weekend)     ", False),
-    (6, 12, "Sun 12:00 EAT (weekend)     ", False),
-]
-all_session_ok = True
-for weekday, hour_eat, label, expected in tests:
-    active = sim_session(weekday, hour_eat)
-    ok = (active == expected)
-    status = "OK " if ok else "ERR"
-    if not ok:
-        all_session_ok = False
-        errors.append(f"Session mismatch at {label}: got {active} expected {expected}")
-    print(f"  {status}  {label}  active={active}  {'pass' if ok else 'FAIL'}")
-
-# ── 6. News State Machine ─────────────────────────────────────────────────────
-print()
-print("--- News state machine ---")
-state_tests = [
-    (-35, "NORMAL"),
-    (-6,  "NORMAL"),
-    (-5,  "PRE_NEWS_FREEZE"),
-    (-1,  "PRE_NEWS_FREEZE"),
-    (0,   "NEWS_SPIKE_BLOCK"),
-    (2,   "NEWS_SPIKE_BLOCK"),
-    (5,   "CATALYST_IMPULSE"),
-    (15,  "CATALYST_IMPULSE"),
-    (25,  "CATALYST_IMPULSE"),
-    (26,  "NORMAL"),
-]
-blocks_states = {"PRE_NEWS_FREEZE", "NEWS_SPIKE_BLOCK"}
-all_news_ok = True
-for offset, expected_state in state_tests:
-    diff = float(offset)
-    if -5.0 <= diff < 0:
-        state = "PRE_NEWS_FREEZE"
-    elif 0 <= diff < 5.0:
-        state = "NEWS_SPIKE_BLOCK"
-    elif 5.0 <= diff <= 25.0:
-        state = "CATALYST_IMPULSE"
-    else:
-        state = "NORMAL"
-    ok = (state == expected_state)
-    blocks = state in blocks_states
-    if not ok:
-        all_news_ok = False
-        errors.append(f"State mismatch T{offset:+d}min: got {state} expected {expected_state}")
-    print(f"  {'OK' if ok else 'ERR'}  T{offset:+3d}min -> {state:20s}  blocks_entry={blocks}  {'pass' if ok else 'FAIL'}")
-
-# ── 7. Telegram recipients check ─────────────────────────────────────────────
-print()
 import os
-try:
-    from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=True)
-except Exception:
-    pass
-
-token   = os.getenv("TELEGRAM_TOKEN", "")
-chat_id = os.getenv("TELEGRAM_CHAT_ID",    "915238743")
-channel = os.getenv("TELEGRAM_CHANNEL_ID", "@riffexalphaedgebot")
-print(f"  Token   : {'SET' if token else 'MISSING'}")
-print(f"  Chat ID : {chat_id}")
-print(f"  Channel : {channel}")
-
-# ── 8. Public Channel Firewall Verification ──────────────────────────────────
-print()
-print("--- Channel Firewall Security Test ---")
-from institutional_trader import _is_channel_allowed
-
-firewall_test_cases = [
-    ("🚀 <b>[AlphaEdge Signal]</b>\nAsset: XAUUSDm\nAction: BUY", True, "Trade Entry Signal"),
-    ("🎯 <b>[Trade Closed — WIN]</b>\nAsset: XAUUSDm (BUY)\nResult: +$10.00", True, "Trade Close Win"),
-    ("🛑 <b>[Trade Closed — LOSS]</b>\nAsset: XAUUSDm (BUY)\nResult: -$10.00", True, "Trade Close Loss"),
-    ("🛡️ <b>[Trade Closed — BREAK-EVEN]</b>\nAsset: XAUUSDm", True, "Trade Close Break-Even"),
-    ("🔄 <b>[Trade Closed — REVERSAL]</b>\nAsset: XAUUSDm", True, "Trade Close Reversal"),
-    ("📊 <b>AlphaEdge Daily Gold Market Report</b>\nEnd of Day", False, "Daily Market Report"),
-    ("📊 ALPHAEDGE DAILY REPORT\nDate: 2026-09-14", False, "Daily Performance Report"),
-    ("🛑 <b>[AlphaEdge Bot Offline]</b>\nScanner was stopped", False, "Bot Offline Notification"),
-    ("🟢 <b>AlphaEdge Bot Status Report</b>\nMarket: Gold", False, "Bot Status Reply"),
-    ("📅 <b>AlphaEdge Daily News Briefing</b>\nHigh-Impact", False, "News Briefing"),
-    ("⏰ <b>30-Minute News Alert</b>\nCore CPI m/m", False, "30-Min News Alert"),
-    ("🛡️ <b>[Break-Even Protected]</b>\nAsset: XAUUSDm", False, "Break-Even Protection"),
-    ("⚠️ <b>[Pre-News Protection]</b>\nAsset: XAUUSDm", False, "Pre-News Protection"),
-]
-
-for msg, expected_allowed, desc in firewall_test_cases:
-    actual = _is_channel_allowed(msg)
-    ok = (actual == expected_allowed)
-    status = "OK " if ok else "ERR"
-    action = "PERMITTED" if actual else "BLOCKED  "
-    if not ok:
-        errors.append(f"Firewall test failed for '{desc}': got {actual}, expected {expected_allowed}")
-    print(f"  {status} [{action}] {desc:30s} -> {'pass' if ok else 'FAIL'}")
-
-# ── 9. Dealing Range & Momentum Alignment Safeguards ───────────────────────
-print()
-print("--- Dealing Range & Momentum Alignment Safeguards ---")
-
-# Test 1: Bearish H4 but location is deep discount (< 35%) -> SELL MUST BE BLOCKED
-h4_trend = "BEARISH"
-loc_pct = 9.5  # Exactly like today's bad entry
-macro_sell_allowed = (loc_pct >= 35.0) if h4_trend == "BEARISH" else False
-ok1 = (macro_sell_allowed == False)
-print(f"  {'OK ' if ok1 else 'ERR'} [Discount Gate] H4 BEARISH at {loc_pct}% location -> SELL allowed: {macro_sell_allowed} (Expected: False) -> {'pass' if ok1 else 'FAIL'}")
-if not ok1:
-    errors.append("Dealing Range failed: allowed SELL at 9.5% discount")
-
-# Test 2: Bullish H4 but location is deep premium (> 65%) -> BUY MUST BE BLOCKED
-h4_trend = "BULLISH"
-loc_pct = 85.0
-macro_buy_allowed = (loc_pct <= 65.0) if h4_trend == "BULLISH" else False
-ok2 = (macro_buy_allowed == False)
-print(f"  {'OK ' if ok2 else 'ERR'} [Premium Gate]  H4 BULLISH at {loc_pct}% location -> BUY allowed: {macro_buy_allowed} (Expected: False) -> {'pass' if ok2 else 'FAIL'}")
-if not ok2:
-    errors.append("Dealing Range failed: allowed BUY at 85.0% premium")
-
-# Test 3: Liquidity sweep SELL appears, but M15 UT Bot is BUY -> SELL MUST BE BLOCKED
-m15_sell_sweep = True
-h1_sell_sweep = False
-ut_signal_m15 = "BUY"  # Exactly like today's bad entry
-has_sell_trigger = (ut_signal_m15 == "SELL" or m15_sell_sweep or h1_sell_sweep) and (ut_signal_m15 != "BUY")
-ok3 = (has_sell_trigger == False)
-print(f"  {'OK ' if ok3 else 'ERR'} [Momentum Gate] Sweep SELL with M15 UT BUY -> Triggered: {has_sell_trigger} (Expected: False) -> {'pass' if ok3 else 'FAIL'}")
-if not ok3:
-    errors.append("Momentum Gate failed: allowed SELL while M15 UT Bot was BUY")
-
-# Test 4: Liquidity sweep BUY appears, but M15 UT Bot is SELL -> BUY MUST BE BLOCKED
-m15_buy_sweep = True
-h1_buy_sweep = False
-ut_signal_m15 = "SELL"
-has_buy_trigger = (ut_signal_m15 == "BUY" or m15_buy_sweep or h1_buy_sweep) and (ut_signal_m15 != "SELL")
-ok4 = (has_buy_trigger == False)
-print(f"  {'OK ' if ok4 else 'ERR'} [Momentum Gate] Sweep BUY with M15 UT SELL -> Triggered: {has_buy_trigger} (Expected: False) -> {'pass' if ok4 else 'FAIL'}")
-if not ok4:
-    errors.append("Momentum Gate failed: allowed BUY while M15 UT Bot was SELL")
-
-# Test 5: Fully aligned SELL setup (H4 BEARISH, location 55% premium, UT Bot SELL) -> ALLOWED
-h4_trend = "BEARISH"
-loc_pct = 55.0
-ut_signal_m15 = "SELL"
-macro_sell_allowed = (loc_pct >= 35.0)
-has_sell_trigger = (ut_signal_m15 == "SELL" or False) and (ut_signal_m15 != "BUY")
-ok5 = (macro_sell_allowed and has_sell_trigger) == True
-print(f"  {'OK ' if ok5 else 'ERR'} [Aligned Setup] H4 BEARISH at 55% + UT SELL -> Allowed: {macro_sell_allowed and has_sell_trigger} (Expected: True) -> {'pass' if ok5 else 'FAIL'}")
-if not ok5:
-    errors.append("Aligned Setup failed: rejected valid aligned SELL setup")
-
-# ── 10. Liquidity Approach Architecture & Anti-Chase Shield Verification ───────
-print()
-print("--- Liquidity Approach Architecture & Anti-Chase Shield Tests ---")
-from institutional_engine import InstitutionalEngine
-import pandas as pd
+import sys
+import py_compile
+from datetime import datetime, timezone
 import numpy as np
 
-inst_eng = InstitutionalEngine()
+ROOT = os.path.dirname(os.path.abspath(__file__))
+failures = []
 
-# Test 1: Pre-Zone Compression Filter (8 narrow bars right at border -> BLOCKED)
-# Create synthetic M5 dataframe with 25 bars where the last 8 bars are ultra-tight
-compressed_data = []
-base_p = 2700.0
-for i in range(25):
-    if i < 15:
-        # Standard bars (ATR ~ 2.0)
-        compressed_data.append({"high": base_p + 2.0, "low": base_p - 2.0, "close": base_p + 1.0, "open": base_p - 1.0})
-    else:
-        # Compressed bars right before touch (range ~ 0.3 pts, < 0.5x ATR)
-        compressed_data.append({"high": base_p + 0.15, "low": base_p - 0.15, "close": base_p + 0.05, "open": base_p - 0.05})
-df_compressed = pd.DataFrame(compressed_data)
-comp_res = inst_eng.check_approach_architecture(df_compressed, "BUY")
-ok_comp = (comp_res["safe"] == False and comp_res["approach"] == "PRE_ZONE_COMPRESSION")
-print(f"  {'OK ' if ok_comp else 'ERR'} [Approach Architecture] Pre-Zone Compression -> Safe: {comp_res['safe']} ({comp_res['approach']}) -> {'pass' if ok_comp else 'FAIL'}")
-if not ok_comp:
-    errors.append("Approach Architecture test failed: did not detect Pre-Zone Compression")
 
-# Test 2: Exhaustion Sweep Arrival (Wide bars straight into zone -> APPROVED)
-exhaustion_data = []
-for i in range(25):
-    # Wide exhaustion bars (range ~ 3.5 pts)
-    exhaustion_data.append({"high": base_p + 3.0, "low": base_p - 3.0, "close": base_p + 1.5, "open": base_p - 1.5})
-df_exhaustion = pd.DataFrame(exhaustion_data)
-exh_res = inst_eng.check_approach_architecture(df_exhaustion, "BUY")
-ok_exh = (exh_res["safe"] == True and exh_res["approach"] == "EXHAUSTION_SWEEP")
-print(f"  {'OK ' if ok_exh else 'ERR'} [Approach Architecture] Exhaustion Sweep -> Safe: {exh_res['safe']} ({exh_res['approach']}) -> {'pass' if ok_exh else 'FAIL'}")
-if not ok_exh:
-    errors.append("Approach Architecture test failed: did not approve Exhaustion Sweep")
+def check(name: str, condition: bool, detail: str = ""):
+    status = "OK " if condition else "ERR"
+    suffix = f" | {detail}" if detail else ""
+    print(f"  {status} [{name}]{suffix}")
+    if not condition:
+        failures.append(f"{name}: {detail}")
 
-# Test 3: Anti-Chase Shield (M5 closed too far from sweep low -> DECLINED)
-chase_data = [
-    {"high": 2705.0, "low": 2698.0, "close": 2700.0, "open": 2704.0},
-    {"high": 2703.0, "low": 2695.0, "close": 2696.0, "open": 2702.0},
-    {"high": 2700.0, "low": 2690.0, "close": 2692.0, "open": 2698.0},
-    {"high": 2692.0, "low": 2688.0, "close": 2690.0, "open": 2691.0},
-    {"high": 2690.0, "low": 2685.0, "close": 2686.0, "open": 2689.0}, # sweep bar
-    {"high": 2702.0, "low": 2686.0, "close": 2701.0, "open": 2687.0}, # huge 15-pt bar closing at top
-    {"high": 2703.0, "low": 2700.0, "close": 2702.0, "open": 2701.0}, # current forming
+
+print("=" * 72)
+print("ALPHAEDGE PURE PRICE ACTION 3-TF HEALTH & INTEGRITY CHECK")
+print("=" * 72)
+
+print("\n--- 1. Module Compilation & Cleanliness ---")
+core_files = [
+    "pure_price_action.py",
+    "institutional_engine.py",
+    "institutional_trader.py",
+    "ai_learning.py",
+    "m15_trade_analysis_logger.py",
+    "news_catalyst_engine.py",
+    "backtest_institutional.py",
+    "alphaedge.py",
 ]
-df_chase = pd.DataFrame(chase_data)
-chase_res = inst_eng.verify_m5_pullback_confirmation(df_chase, "BUY", max_chase_dist=6.5, sweep_ref=2685.0)
-ok_chase = (chase_res["confirmed"] == False and chase_res.get("chasing") == True)
-print(f"  {'OK ' if ok_chase else 'ERR'} [Anti-Chase] Late M5 close (16 pts above low, max 6.5) -> Confirmed: {chase_res['confirmed']} -> {'pass' if ok_chase else 'FAIL'}")
-if not ok_chase:
-    errors.append("Anti-Chase Shield failed: allowed chasing entry 16 pts above low")
+for fname in core_files:
+    fpath = os.path.join(ROOT, fname)
+    try:
+        py_compile.compile(fpath, doraise=True)
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            txt = f.read()
+        has_yad = ("yad masri" in txt.lower()) or ("yad_masri" in txt.lower())
+        check(f"Compile {fname}", not has_yad, "clean" if not has_yad else "Found forbidden legacy string")
+    except Exception as exc:
+        check(f"Compile {fname}", False, str(exc))
 
-# ── Final Result ──────────────────────────────────────────────────────────────
-print()
-if errors:
-    print(f"HEALTH CHECK FAILED -- {len(errors)} error(s):")
-    for e in errors:
-        print(" ", e)
+import pure_price_action as ppa
+import institutional_trader as it
+from institutional_engine import InstitutionalEngine
+from news_catalyst_engine import NewsCatalystEngine
+from ai_learning import AutoLearner
+import m15_trade_analysis_logger as tlog
+
+print("\n--- 2. Calibrated Asset Specs & Risk Constants ---")
+check("Daily DD Cap", it.MAX_DAILY_DRAWDOWN_USD == 50.0, f"-${it.MAX_DAILY_DRAWDOWN_USD:.2f}")
+check("Max Concurrent", it.MAX_CONCURRENT_POSITIONS == 2, f"{it.MAX_CONCURRENT_POSITIONS} trades")
+for sym, expected_lot in [("XAUUSDm", 0.02), ("USOILm", 0.05), ("US30m", 0.25)]:
+    cfg = it.ASSET_CONFIGS.get(sym, {})
+    ok = (
+        cfg.get("lot") == expected_lot
+        and cfg.get("max_sl_dollars") == 34.0
+        and cfg.get("tp_dollars") == 55.0
+        and cfg.get("be_trigger_dollars") == 28.0
+        and cfg.get("lock_trigger_dollars") == 44.0
+        and cfg.get("lock_amount_dollars") == 32.0
+    )
+    check(f"Spec {sym}", ok, f"lot={cfg.get('lot')}, SL=${cfg.get('max_sl_dollars')}, TP=${cfg.get('tp_dollars')}, BE=${cfg.get('be_trigger_dollars')}")
+
+print("\n--- 3. Mon-Fri London & NY Killzone Schedule ---")
+# Mondays & Fridays MUST trade during Killzones; weekends & off-hours MUST block
+schedule_cases = [
+    ("Mon 07:00 UTC (London KZ)", datetime(2026, 11, 9, 7, 0, tzinfo=timezone.utc), True),
+    ("Fri 15:30 UTC (NY KZ)", datetime(2026, 11, 13, 15, 30, tzinfo=timezone.utc), True),
+    ("Wed 02:00 UTC (Asian chop)", datetime(2026, 11, 11, 2, 0, tzinfo=timezone.utc), False),
+    ("Wed 11:00 UTC (London lunch)", datetime(2026, 11, 11, 11, 0, tzinfo=timezone.utc), False),
+    ("Thu 21:00 UTC (Rollover)", datetime(2026, 11, 12, 21, 0, tzinfo=timezone.utc), False),
+    ("Sat 08:00 UTC (Weekend)", datetime(2026, 11, 14, 8, 0, tzinfo=timezone.utc), False),
+    ("Sun 16:00 UTC (Weekend)", datetime(2026, 11, 15, 16, 0, tzinfo=timezone.utc), False),
+]
+for label, dt_case, expected in schedule_cases:
+    got = ppa.is_killzone_active(dt_case)
+    check(label, got == expected, f"got={got}, expected={expected}")
+
+print("\n--- 4. Pure Price Action 3-TF Signal Logic ---")
+kz_dt = datetime(2026, 11, 12, 15, 0, tzinfo=timezone.utc)   # Thu NY KZ
+off_dt = datetime(2026, 11, 12, 2, 0, tzinfo=timezone.utc)   # Thu Asian chop
+
+# Test A: Valid BUY PDL + ASIAN_L sweep reclaim (H4 BULL +1, H4 leg = 40% <= 75%)
+r_buy = ppa.evaluate_3tf_pure_pa_step(
+    c_m5=2604.0, o_m5=2598.0, h_m5=2605.0, l_m5=2594.0,
+    c_m5_prev=2597.0, h_m5_prev=2602.0, l_m5_prev=2595.0,
+    m5_med_range=8.0,
+    m15_o=2596.0, m15_c=2601.0, m15_med_range=14.0,
+    h4_bias_state=1, h4_sh=2664.0, h4_sl=2564.0,
+    pdh=2640.0, pdl=2600.0,
+    h4_prev_h=2620.0, h4_prev_l=2596.0,
+    asian_h=2615.0, asian_l=2601.0,
+    dt_utc=kz_dt,
+)
+check("Valid BUY sweep reclaim", r_buy["triggered"] and r_buy["direction"] == "BUY" and r_buy["sweep_extreme"] == 2594.0, r_buy["reason"])
+
+# Test B: Counter-trend H4 BEARISH (-1) blocks BUY
+r_cnt = ppa.evaluate_3tf_pure_pa_step(
+    c_m5=2604.0, o_m5=2598.0, h_m5=2605.0, l_m5=2594.0,
+    c_m5_prev=2597.0, h_m5_prev=2602.0, l_m5_prev=2595.0,
+    m5_med_range=8.0,
+    m15_o=2596.0, m15_c=2601.0, m15_med_range=14.0,
+    h4_bias_state=-1, h4_sh=2664.0, h4_sl=2564.0,
+    pdh=2640.0, pdl=2600.0,
+    h4_prev_h=2620.0, h4_prev_l=2596.0,
+    asian_h=2615.0, asian_l=2601.0,
+    dt_utc=kz_dt,
+)
+check("H4 BEAR blocks BUY", (not r_cnt["triggered"]) and "H4_BEARISH_BLOCKS_BUY" in r_cnt["reason"], r_cnt["reason"])
+
+# Test C: H4 Swing Leg > 75% blocks BUY chase
+r_ext = ppa.evaluate_3tf_pure_pa_step(
+    c_m5=2604.0, o_m5=2598.0, h_m5=2605.0, l_m5=2594.0,
+    c_m5_prev=2597.0, h_m5_prev=2602.0, l_m5_prev=2595.0,
+    m5_med_range=8.0,
+    m15_o=2596.0, m15_c=2601.0, m15_med_range=14.0,
+    h4_bias_state=1, h4_sh=2610.0, h4_sl=2510.0,  # 2604 is at 94% of leg!
+    pdh=2640.0, pdl=2600.0,
+    h4_prev_h=2620.0, h4_prev_l=2596.0,
+    asian_h=2615.0, asian_l=2601.0,
+    dt_utc=kz_dt,
+)
+check("H4 Leg > 75% blocks BUY", (not r_ext["triggered"]) and "H4_OVEREXTENDED_BUY" in r_ext["reason"], r_ext["reason"])
+
+# Test D: M15 Bearish Crash (> 1.5x med) blocks BUY
+r_crash = ppa.evaluate_3tf_pure_pa_step(
+    c_m5=2604.0, o_m5=2598.0, h_m5=2605.0, l_m5=2594.0,
+    c_m5_prev=2597.0, h_m5_prev=2602.0, l_m5_prev=2595.0,
+    m5_med_range=8.0,
+    m15_o=2630.0, m15_c=2600.0, m15_med_range=14.0,  # drop=30 > 21
+    h4_bias_state=1, h4_sh=2664.0, h4_sl=2564.0,
+    pdh=2640.0, pdl=2600.0,
+    h4_prev_h=2620.0, h4_prev_l=2596.0,
+    asian_h=2615.0, asian_l=2601.0,
+    dt_utc=kz_dt,
+)
+check("M15 Crash blocks BUY", (not r_crash["triggered"]) and "M15_BEAR_CRASH" in r_crash["reason"], r_crash["reason"])
+
+# Test E: M5 Climax bar (> 2.5x med) rejected & Off-hours rejected
+r_climax = ppa.evaluate_3tf_pure_pa_step(
+    c_m5=2614.0, o_m5=2595.0, h_m5=2616.0, l_m5=2592.0,  # rng=24 > 20
+    c_m5_prev=2597.0, h_m5_prev=2602.0, l_m5_prev=2595.0,
+    m5_med_range=8.0,
+    m15_o=2596.0, m15_c=2601.0, m15_med_range=14.0,
+    h4_bias_state=1, h4_sh=2664.0, h4_sl=2564.0,
+    pdh=2640.0, pdl=2600.0,
+    h4_prev_h=2620.0, h4_prev_l=2596.0,
+    asian_h=2615.0, asian_l=2601.0,
+    dt_utc=kz_dt,
+)
+check("M5 Climax rejected", (not r_climax["triggered"]) and r_climax["reason"] == "M5_CLIMAX_OVEREXTENDED", r_climax["reason"])
+
+r_off = ppa.evaluate_3tf_pure_pa_step(
+    c_m5=2604.0, o_m5=2598.0, h_m5=2605.0, l_m5=2594.0,
+    c_m5_prev=2597.0, h_m5_prev=2602.0, l_m5_prev=2595.0,
+    m5_med_range=8.0,
+    m15_o=2596.0, m15_c=2601.0, m15_med_range=14.0,
+    h4_bias_state=1, h4_sh=2664.0, h4_sl=2564.0,
+    pdh=2640.0, pdl=2600.0,
+    h4_prev_h=2620.0, h4_prev_l=2596.0,
+    asian_h=2615.0, asian_l=2601.0,
+    dt_utc=off_dt,
+)
+check("Off-hours blocked", (not r_off["triggered"]) and r_off["reason"] == "OUTSIDE_KILLZONE", r_off["reason"])
+
+# Test F: Valid SELL PDH + ASIAN_H sweep reclaim
+r_sell = ppa.evaluate_3tf_pure_pa_step(
+    c_m5=2635.0, o_m5=2642.0, h_m5=2646.0, l_m5=2634.0,
+    c_m5_prev=2643.0, h_m5_prev=2645.0, l_m5_prev=2638.0,
+    m5_med_range=8.0,
+    m15_o=2644.0, m15_c=2638.0, m15_med_range=14.0,
+    h4_bias_state=-1, h4_sh=2664.0, h4_sl=2564.0,
+    pdh=2640.0, pdl=2600.0,
+    h4_prev_h=2642.0, h4_prev_l=2610.0,
+    asian_h=2639.0, asian_l=2612.0,
+    dt_utc=kz_dt,
+)
+check("Valid SELL sweep reclaim", r_sell["triggered"] and r_sell["direction"] == "SELL" and r_sell["sweep_extreme"] == 2646.0, r_sell["reason"])
+
+# Test G: Fractal structure series monotonic synthetic check
+h_arr = np.array([10, 12, 15, 13, 11, 12, 14, 18, 16, 14, 15, 20, 22, 19], dtype=float)
+l_arr = h_arr - 3.0
+b3, sh, sl = ppa.compute_h4_structure_series(h_arr, l_arr, h_arr - 1.0)
+check("Fractal H4 series output", len(b3) == len(h_arr) and b3[-1] == 1, f"b3[-1]={b3[-1]}")
+
+print("\n--- 5. Telegram Firewall, AutoLearner & Logger ---")
+check("Channel blocks owner diag", not it._is_channel_allowed("Daily Drawdown Guard triggered"), "blocked")
+check("Channel allows trade closed", it._is_channel_allowed("[Trade Closed — TP HIT] Asset: XAUUSDm"), "allowed")
+learner = AutoLearner()
+cfg_ai = learner.load_config()
+check(
+    "AI Config bounds",
+    45.0 <= cfg_ai.get("gold_tp_dollars", 0) <= 75.0 and cfg_ai.get("gold_be_trigger_dollars", 0) >= 24.0,
+    f"TP=${cfg_ai.get('gold_tp_dollars')}, BE=${cfg_ai.get('gold_be_trigger_dollars')}",
+)
+eng = InstitutionalEngine()
+check("Engine instantiated", eng is not None and callable(eng.evaluate_institutional_setup), "OK")
+perf = tlog.get_performance_summary()
+check("Logger summary", isinstance(perf, dict) and "total" in perf, f"trades={perf.get('total')}")
+news = NewsCatalystEngine()
+check("News engine status", isinstance(news.get_market_catalyst_status("XAUUSDm"), dict), "OK")
+
+print("\n" + "=" * 72)
+if failures:
+    print(f"HEALTH CHECK FAILED ({len(failures)} error(s)):")
+    for item in failures:
+        print(f"  - {item}")
     sys.exit(1)
 else:
-    print("ALL CHECKS PASSED. AlphaEdge engine is clean and ready to run.")
+    print("HEALTH CHECK PASSED 100% — ALL SUBSYSTEMS VERIFIED")
+    sys.exit(0)

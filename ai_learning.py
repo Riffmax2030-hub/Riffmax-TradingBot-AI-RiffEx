@@ -146,7 +146,8 @@ class AutoLearner:
             else:
                 mt5.initialize()
 
-        date_from = datetime.now() - timedelta(hours=self.lookback_hours)
+        reset_floor = datetime(2026, 11, 13, 13, 0)
+        date_from = max(datetime.now() - timedelta(hours=self.lookback_hours), reset_floor)
         date_to   = datetime.now()
         deals = mt5.history_deals_get(date_from, date_to)
 

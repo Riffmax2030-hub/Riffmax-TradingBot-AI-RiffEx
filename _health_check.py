@@ -224,9 +224,9 @@ print(f"  {'OK ' if ok5 else 'ERR'} [Aligned Setup] H4 BEARISH at 55% + UT SELL 
 if not ok5:
     errors.append("Aligned Setup failed: rejected valid aligned SELL setup")
 
-# ── 10. Yad Masri Principle 3 & Anti-Chase Shield Verification ────────────────
+# ── 10. Liquidity Approach Architecture & Anti-Chase Shield Verification ───────
 print()
-print("--- Yad Masri Principle 3 & Anti-Chase Shield Tests ---")
+print("--- Liquidity Approach Architecture & Anti-Chase Shield Tests ---")
 from institutional_engine import InstitutionalEngine
 import pandas as pd
 import numpy as np
@@ -247,9 +247,9 @@ for i in range(25):
 df_compressed = pd.DataFrame(compressed_data)
 comp_res = inst_eng.check_approach_architecture(df_compressed, "BUY")
 ok_comp = (comp_res["safe"] == False and comp_res["approach"] == "PRE_ZONE_COMPRESSION")
-print(f"  {'OK ' if ok_comp else 'ERR'} [Yad Masri P3] Pre-Zone Compression -> Safe: {comp_res['safe']} ({comp_res['approach']}) -> {'pass' if ok_comp else 'FAIL'}")
+print(f"  {'OK ' if ok_comp else 'ERR'} [Approach Architecture] Pre-Zone Compression -> Safe: {comp_res['safe']} ({comp_res['approach']}) -> {'pass' if ok_comp else 'FAIL'}")
 if not ok_comp:
-    errors.append("Yad Masri P3 failed: did not detect Pre-Zone Compression")
+    errors.append("Approach Architecture test failed: did not detect Pre-Zone Compression")
 
 # Test 2: Exhaustion Sweep Arrival (Wide bars straight into zone -> APPROVED)
 exhaustion_data = []
@@ -259,9 +259,9 @@ for i in range(25):
 df_exhaustion = pd.DataFrame(exhaustion_data)
 exh_res = inst_eng.check_approach_architecture(df_exhaustion, "BUY")
 ok_exh = (exh_res["safe"] == True and exh_res["approach"] == "EXHAUSTION_SWEEP")
-print(f"  {'OK ' if ok_exh else 'ERR'} [Yad Masri P3] Exhaustion Sweep -> Safe: {exh_res['safe']} ({exh_res['approach']}) -> {'pass' if ok_exh else 'FAIL'}")
+print(f"  {'OK ' if ok_exh else 'ERR'} [Approach Architecture] Exhaustion Sweep -> Safe: {exh_res['safe']} ({exh_res['approach']}) -> {'pass' if ok_exh else 'FAIL'}")
 if not ok_exh:
-    errors.append("Yad Masri P3 failed: did not approve Exhaustion Sweep")
+    errors.append("Approach Architecture test failed: did not approve Exhaustion Sweep")
 
 # Test 3: Anti-Chase Shield (M5 closed too far from sweep low -> DECLINED)
 chase_data = [

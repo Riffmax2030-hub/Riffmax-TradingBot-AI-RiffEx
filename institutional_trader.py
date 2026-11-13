@@ -49,8 +49,8 @@ ASSET_CONFIGS = {
         "lot": 0.02,                      # 0.02 Lot (User exact setting)
         "key_mult": 1.0,
         "atr_period": 10,
-        "tp_dollars": 100.0,             # Target: $100.00 USD Profit (50.0 pts move with 0.02 lot)
-        "tp_catalyst_dollars": 120.0,     # Expanded $120.00 Target during High Momentum
+        "tp_dollars": 65.0,              # Target: $65.00 USD Profit (32.5 pts move with 0.02 lot)
+        "tp_catalyst_dollars": 85.0,     # Expanded $120.00 Target during High Momentum
         "be_trigger_dollars": 20.0,       # Stage 1: Move SL to Entry at +$20.00 profit (10.0 pts)
         "lock_trigger_dollars": 35.0,     # Stage 2: Trigger Profit Lock at +$35.00 profit (17.5 pts)
         "lock_amount_dollars": 25.0,      # Stage 2: Lock $25.00 profit into SL (12.5 pts)
@@ -65,8 +65,8 @@ ASSET_CONFIGS = {
         "lot": 0.05,                      # 0.05 Lot ($50.00 per $1.00 move)
         "key_mult": 1.0,
         "atr_period": 10,
-        "tp_dollars": 100.0,             # Target: $100.00 USD ($2.00 move at 0.05 lot)
-        "tp_catalyst_dollars": 120.0,     # Expanded $120.00 Target ($2.40 move during high news volatility)
+        "tp_dollars": 65.0,              # Target: $65.00 USD ($1.30 move at 0.05 lot)
+        "tp_catalyst_dollars": 85.0,     # Expanded $120.00 Target ($2.40 move during high news volatility)
         "be_trigger_dollars": 20.0,       # BE Protection: Move SL to Entry at +$20.00 profit ($0.40 move)
         "lock_trigger_dollars": 35.0,     # Stage 2: Trigger Profit Lock at +$35.00 profit ($0.70 move)
         "lock_amount_dollars": 25.0,      # Stage 2: Lock +$25.00 profit into SL ($0.50 move)
@@ -81,8 +81,8 @@ ASSET_CONFIGS = {
         "lot": 0.25,                      # 0.25 Lot ($0.25 per index pt)
         "key_mult": 1.0,
         "atr_period": 10,
-        "tp_dollars": 100.0,             # Target: $100.00 USD Profit (400.0 index pts move)
-        "tp_catalyst_dollars": 120.0,     # Expanded $120.00 Target (480.0 index pts move)
+        "tp_dollars": 65.0,              # Target: $65.00 USD Profit (260.0 index pts move)
+        "tp_catalyst_dollars": 85.0,     # Expanded $120.00 Target (480.0 index pts move)
         "be_trigger_dollars": 20.0,       # Stage 1: Move SL to Entry at +$20.00 profit (80.0 pts)
         "lock_trigger_dollars": 35.0,     # Stage 2: Trigger Profit Lock at +$35.00 profit (140.0 pts)
         "lock_amount_dollars": 25.0,      # Stage 2: Lock $25.00 profit into SL (100.0 pts)
@@ -195,10 +195,10 @@ def apply_ai_learned_settings():
 
                 # Safe clamp: Wholesale swing TP range ($70 - $150)
                 tp_val = float(learned.get("tp_dollars", asset_cfg.get("tp_dollars", 100.0)))
-                asset_cfg["tp_dollars"] = max(70.0, min(150.0, tp_val))
+                asset_cfg["tp_dollars"] = max(50.0, min(150.0, tp_val))
 
                 tp_cat = float(learned.get("tp_catalyst_dollars", asset_cfg.get("tp_catalyst_dollars", 120.0)))
-                asset_cfg["tp_catalyst_dollars"] = max(90.0, min(180.0, tp_cat))
+                asset_cfg["tp_catalyst_dollars"] = max(70.0, min(180.0, tp_cat))
 
                 be_trig = float(learned.get("be_trigger_dollars", asset_cfg.get("be_trigger_dollars", 20.0)))
                 asset_cfg["be_trigger_dollars"] = max(15.0, min(25.0, be_trig))

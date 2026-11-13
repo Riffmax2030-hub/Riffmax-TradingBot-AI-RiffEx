@@ -1,6 +1,6 @@
 {
-    "gold_tp_dollars": 100.0,
-    "gold_tp_catalyst_dollars": 120.0,
+    "gold_tp_dollars": 65.0,
+    "gold_tp_catalyst_dollars": 85.0,
     "gold_be_trigger_dollars": 20.0,
     "gold_lock_trigger_dollars": 35.0,
     "gold_lock_amount_dollars": 25.0,
@@ -14,8 +14,8 @@
     "net_pnl": -324.1,
     "symbols_config": {
         "XAUUSDm": {
-            "tp_dollars": 100.0,
-            "tp_catalyst_dollars": 120.0,
+            "tp_dollars": 65.0,
+            "tp_catalyst_dollars": 85.0,
             "be_trigger_dollars": 20.0,
             "lock_trigger_dollars": 35.0,
             "lock_amount_dollars": 25.0,
@@ -24,8 +24,8 @@
             "max_sl_dollars": 36.0
         },
         "USOILm": {
-            "tp_dollars": 100.0,
-            "tp_catalyst_dollars": 120.0,
+            "tp_dollars": 65.0,
+            "tp_catalyst_dollars": 85.0,
             "be_trigger_dollars": 20.0,
             "lock_trigger_dollars": 35.0,
             "lock_amount_dollars": 25.0,
@@ -34,8 +34,8 @@
             "max_sl_dollars": 35.0
         },
         "US30m": {
-            "tp_dollars": 100.0,
-            "tp_catalyst_dollars": 120.0,
+            "tp_dollars": 65.0,
+            "tp_catalyst_dollars": 85.0,
             "be_trigger_dollars": 20.0,
             "lock_trigger_dollars": 35.0,
             "lock_amount_dollars": 25.0,

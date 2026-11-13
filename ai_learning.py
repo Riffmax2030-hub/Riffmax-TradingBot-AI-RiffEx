@@ -72,8 +72,8 @@ class AutoLearner:
             except Exception as e:
                 logger.error(f"Error loading {self.config_path}: {e}")
         return {
-            "gold_tp_dollars": 100.0,
-            "gold_tp_catalyst_dollars": 120.0,
+            "gold_tp_dollars": 65.0,
+            "gold_tp_catalyst_dollars": 85.0,
             "gold_be_trigger_dollars": 20.0,
             "gold_lock_trigger_dollars": 35.0,
             "gold_lock_amount_dollars": 25.0,
@@ -151,8 +151,8 @@ class AutoLearner:
         deals = mt5.history_deals_get(date_from, date_to)
 
         # Baseline Defaults (Wholesale Institutional Swing - $100 TP baseline)
-        gold_tp = 100.0
-        gold_tp_catalyst = 120.0
+        gold_tp = 65.0
+        gold_tp_catalyst = 85.0
         gold_be = 20.0
         lock1_trig = 35.0
         lock1_amt = 25.0
@@ -227,8 +227,8 @@ class AutoLearner:
                 lock2_amt = 35.0
             else:
                 regime = "BALANCED_INSTITUTIONAL_SWING"
-                gold_tp = 100.0
-                gold_tp_catalyst = 120.0
+                gold_tp = 65.0
+                gold_tp_catalyst = 85.0
                 gold_be = 20.0
                 lock1_trig = 35.0
                 lock1_amt = 25.0
@@ -236,8 +236,8 @@ class AutoLearner:
                 lock2_amt = 45.0
         else:
             regime = "INITIAL_INSTITUTIONAL_SWING"
-            gold_tp = 100.0
-            gold_tp_catalyst = 120.0
+            gold_tp = 65.0
+            gold_tp_catalyst = 85.0
             gold_be = 20.0
             lock1_trig = 35.0
             lock1_amt = 25.0

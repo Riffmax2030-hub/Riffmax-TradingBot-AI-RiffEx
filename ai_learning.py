@@ -43,6 +43,12 @@ except Exception:
     pass
 
 def send_telegram(message: str):
+    try:
+        from pure_price_action import is_weekend_quiet
+        if is_weekend_quiet():
+            return
+    except Exception:
+        pass
     token   = os.getenv("TELEGRAM_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "915238743")
     if not token or not chat_id:

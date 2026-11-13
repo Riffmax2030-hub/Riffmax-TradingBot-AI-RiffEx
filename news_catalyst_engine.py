@@ -183,7 +183,13 @@ class NewsCatalystEngine:
 
     # ── Telegram helpers ─────────────────────────────────────────────────────────
     def _telegram(self, message):
-        """Send to owner DM only — news briefings and alerts are private/operational, not public signals."""
+        """Send to owner DM only — suppressed completely on weekends (Sat/Sun)."""
+        try:
+            from pure_price_action import is_weekend_quiet
+            if is_weekend_quiet():
+                return
+        except Exception:
+            pass
         token   = os.getenv("TELEGRAM_TOKEN", "")
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "915238743")
         if not token or not chat_id:
@@ -207,9 +213,15 @@ class NewsCatalystEngine:
 
     def send_daily_briefing(self):
         """
-        Sends a daily news briefing via Telegram at bot startup (once per day).
-        Lists all high-impact USD & EUR events scheduled for today in EAT time.
+        Sends a daily news briefing via Telegram at bot startup (once per Mon-Fri day).
+        Suppressed completely on weekends (Saturday & Sunday).
         """
+        try:
+            from pure_price_action import is_weekend_quiet
+            if is_weekend_quiet():
+                return
+        except Exception:
+            pass
         now_utc = datetime.now(timezone.utc)
         today_str = now_utc.strftime("%Y-%m-%d")
 
@@ -258,8 +270,14 @@ class NewsCatalystEngine:
     def check_and_send_30min_alerts(self):
         """
         Called every bot cycle (~60s). Fires a Telegram alert once per event
-        when it is 28–32 minutes away so the trader can prepare for manual entries.
+        when it is 28–32 minutes away (Mon-Fri only; suppressed on weekends).
         """
+        try:
+            from pure_price_action import is_weekend_quiet
+            if is_weekend_quiet():
+                return
+        except Exception:
+            pass
         now_utc = datetime.now(timezone.utc)
 
         for ev in self.events:

@@ -13,11 +13,25 @@ Zero lagging indicator triggers (no UT Bot, no EMA crossovers):
                       breaking prior bar extreme + anti-climax range guard (<= 2.5x median).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import numpy as np
 
 
 KILLZONE_HOURS_UTC = frozenset({6, 7, 8, 9, 14, 15, 16, 17, 18, 19})
+
+
+def is_weekend_quiet(dt_utc: datetime | None = None) -> bool:
+    """
+    Returns True throughout the entire Saturday-Sunday weekend window
+    (Sat 00:00 EAT / Fri 21:00 UTC through Mon 02:59 EAT / Sun 23:59 UTC).
+    All trading scans and automated Telegram notifications must stay silent.
+    """
+    if dt_utc is None:
+        dt_utc = datetime.now(timezone.utc)
+    if dt_utc.tzinfo is None:
+        dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+    dt_eat = dt_utc + timedelta(hours=3)
+    return dt_utc.weekday() in (5, 6) or dt_eat.weekday() in (5, 6)
 
 CALIBRATED_ASSET_SPECS = {
     "XAUUSDm": {

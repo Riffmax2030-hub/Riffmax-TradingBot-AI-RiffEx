@@ -28,7 +28,7 @@ from datetime import datetime, timezone, timedelta
 import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
-from pure_price_action import CALIBRATED_ASSET_SPECS, is_killzone_active
+from pure_price_action import CALIBRATED_ASSET_SPECS, is_killzone_active, is_weekend_quiet
 from news_catalyst_engine import NewsCatalystEngine
 from institutional_engine import InstitutionalEngine
 from pre_trade_backtester import PreTradeBacktester
@@ -283,8 +283,8 @@ def _is_channel_allowed(message: str) -> bool:
     return is_entry or is_close
 
 def _tg_send(chat_id, message):
-    """Low-level: sends a single message to one recipient with strict firewall."""
-    if not _TELEGRAM_TOKEN or not chat_id:
+    """Low-level: sends a single message to one recipient with firewall & weekend cutoff."""
+    if not _TELEGRAM_TOKEN or not chat_id or is_weekend_quiet():
         return
 
     # SILENT MODE: channel completely muted until bot is proven profitable
@@ -621,7 +621,7 @@ def execute_order(symbol, order_type, lot, sl, tp, catalyst_desc="Standard", new
         "tp": round(tp, dp),
         "deviation": 20,
         "magic": 20250831,
-        "comment": "M15_UT_SWING",
+        "comment": "PurePA_3TF",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
     }

@@ -92,6 +92,18 @@ for label, dt_case, expected in schedule_cases:
     got = ppa.is_killzone_active(dt_case)
     check(label, got == expected, f"got={got}, expected={expected}")
 
+weekend_cases = [
+    ("Fri 20:50 UTC (23:50 EAT Weekly Report OK)", datetime(2026, 11, 13, 20, 50, tzinfo=timezone.utc), False),
+    ("Sat 00:00 EAT (Fri 21:00 UTC Quiet)", datetime(2026, 11, 13, 21, 0, tzinfo=timezone.utc), True),
+    ("Sat 10:00 UTC (Weekend Quiet)", datetime(2026, 11, 14, 10, 0, tzinfo=timezone.utc), True),
+    ("Sun 18:00 UTC (Weekend Quiet)", datetime(2026, 11, 15, 18, 0, tzinfo=timezone.utc), True),
+    ("Sun 23:00 UTC (Mon 02:00 EAT Quiet)", datetime(2026, 11, 15, 23, 0, tzinfo=timezone.utc), True),
+    ("Mon 06:00 UTC (09:00 EAT Active)", datetime(2026, 11, 16, 6, 0, tzinfo=timezone.utc), False),
+]
+for label, dt_case, expected in weekend_cases:
+    got = ppa.is_weekend_quiet(dt_case)
+    check(label, got == expected, f"quiet={got}, expected={expected}")
+
 print("\n--- 4. Pure Price Action 3-TF Signal Logic ---")
 kz_dt = datetime(2026, 11, 12, 15, 0, tzinfo=timezone.utc)   # Thu NY KZ
 off_dt = datetime(2026, 11, 12, 2, 0, tzinfo=timezone.utc)   # Thu Asian chop

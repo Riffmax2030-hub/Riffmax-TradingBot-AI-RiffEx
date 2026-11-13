@@ -165,7 +165,7 @@ def process_telegram_commands():
                         f"• <b>Scan Speed:</b> 5-Second Real-Time\n"
                         f"• <b>Protections:</b> 24/7 Trading | RSI Retest | Price Action Wicks | Auto-TP1 Lock"
                     )
-                    send_telegram_alert(status_reply)
+                    send_telegram_alert(status_reply, allow_on_weekend=True)
 
                 elif cmd in ["/pnl", "/balance"]:
                     acc = mt5.account_info() if mt5.terminal_info() else None
@@ -178,7 +178,7 @@ def process_telegram_commands():
                         f"• <b>Account Equity:</b> ${eq:.2f}\n"
                         f"• <b>Floating PnL:</b> ${pnl:+.2f}\n"
                     )
-                    send_telegram_alert(pnl_reply)
+                    send_telegram_alert(pnl_reply, allow_on_weekend=True)
 
                 elif cmd in ["/help", "/start"]:
                     help_reply = (
@@ -190,23 +190,23 @@ def process_telegram_commands():
                         "• /start_scanner — Resume the scanner\n"
                         "• /help — Display command menu"
                     )
-                    send_telegram_alert(help_reply)
+                    send_telegram_alert(help_reply, allow_on_weekend=True)
 
                 elif cmd in ["/shadow", "/shadow_report"]:
                     try:
                         from shadow_tracker import generate_shadow_report
                         shadow_rep = generate_shadow_report()
-                        send_telegram_alert(shadow_rep)
+                        send_telegram_alert(shadow_rep, allow_on_weekend=True)
                     except Exception as shadow_err:
-                        send_telegram_alert(f"⚠️ Shadow Report Error: {shadow_err}")
+                        send_telegram_alert(f"⚠️ Shadow Report Error: {shadow_err}", allow_on_weekend=True)
 
                 elif cmd == "/stop_scanner":
                     Path("bot_state.txt").write_text("STOPPED")
-                    send_telegram_alert("🛑 <b>Scanner Paused</b>\nScanner is now paused. Send /start_scanner to resume.")
+                    send_telegram_alert("🛑 <b>Scanner Paused</b>\nScanner is now paused. Send /start_scanner to resume.", allow_on_weekend=True)
 
                 elif cmd == "/start_scanner":
                     Path("bot_state.txt").write_text("RUNNING")
-                    send_telegram_alert("🟢 <b>Scanner Resumed</b>\nScanner is actively monitoring Gold for setups.")
+                    send_telegram_alert("🟢 <b>Scanner Resumed</b>\nScanner is actively monitoring Gold for setups.", allow_on_weekend=True)
 
     except Exception as err:
         logger.debug(f"Telegram command check error: {err}")
@@ -256,9 +256,17 @@ def is_trading_session_active() -> bool:
 
 
 
-def send_telegram_alert(message: str):
+def send_telegram_alert(message: str, allow_on_weekend: bool = False):
     """Sends system-level alerts to owner DM only (startup, shutdown, daily reports, commands).
-    NOT sent to the public channel — channel receives trade signals only."""
+    Suppressed completely on weekends (Sat/Sun) unless replying to an explicit manual command."""
+    if not allow_on_weekend:
+        try:
+            from pure_price_action import is_weekend_quiet
+            if is_weekend_quiet():
+                logger.debug("Weekend quiet mode active — Telegram alert suppressed.")
+                return
+        except Exception:
+            pass
     token   = os.getenv("TELEGRAM_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "915238743")
     if not token or not chat_id:
@@ -1887,6 +1895,17 @@ if __name__ == "__main__":
 
             logger.info(f"AlphaEdge M15 Swing Engine scanning at {cycle_start.strftime('%Y-%m-%d %H:%M:%S')}...")
 
+            now = datetime.now()
+            now_utc = datetime.now(timezone.utc)
+            today_date = now.date()
+            from pure_price_action import is_weekend_quiet
+            if is_weekend_quiet(now_utc):
+                # Weekend complete silence: no EOD reports, no shadow reports, no AI alerts
+                cycle_end = datetime.now()
+                elapsed = (cycle_end - cycle_start).total_seconds()
+                time.sleep(max(0, 60.0 - elapsed))
+                continue
+
             # Check pause state from Telegram /stop_scanner
             state_file = Path("bot_state.txt")
             if state_file.exists() and state_file.read_text().strip().upper() == "STOPPED":
@@ -1907,16 +1926,8 @@ if __name__ == "__main__":
                 except Exception as shadow_err:
                     logger.debug(f"[ShadowTracker] Observation error: {shadow_err}")
 
-
-            # ── End-of-Day Pre-Close Gold Market Analysis (20:45 UTC) ──────────────
-            # Gold market closes at 21:00 UTC. We fire at 20:45 UTC to give a
-            # full daily performance & market analysis before the close.
-            now = datetime.now()
-            today_date = now.date()
-            # Suppress on weekends (Saturday=5, Sunday=6) when markets are closed
-            if now.weekday() in (5, 6):
-                pass
-            elif now.hour == 20 and 44 <= now.minute <= 49:
+            # ── End-of-Day Pre-Close Market Analysis (20:45 UTC = 23:45 EAT, Mon-Fri) ──
+            if now_utc.hour == 20 and 44 <= now_utc.minute <= 49:
                 eod_key = today_date.strftime("EOD_%Y-%m-%d")
                 if not getattr(process_telegram_commands, "_eod_sent", None) or process_telegram_commands._eod_sent != eod_key:
                     process_telegram_commands._eod_sent = eod_key

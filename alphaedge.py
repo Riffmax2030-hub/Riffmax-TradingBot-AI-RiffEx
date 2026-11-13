@@ -1828,7 +1828,7 @@ if __name__ == "__main__":
     logger.info("=" * 65)
     logger.info("  ALPHAEDGE — INSTITUTIONAL MTF WHALE FLOW SWING ENGINE")
     logger.info("  Live Assets: Gold (XAUUSDm) | Crude Oil (USOILm) | Dow Jones (US30m)")
-    logger.info("  Strategy: H4 Dealing Range | Yad Masri Principle 3 Approach Architecture | M5 Anti-Chase")
+    logger.info("  Strategy: H4 Dealing Range | M15 Institutional UT Flow | Micro Liquidity Sweeps")
     logger.info("  Gold:   0.02 lot | TP: $100.00 | Max SL: $36.00 (18 pts)  | BE: +$20 | Lock1: $35->$25 | Lock2: $60->$45")
     logger.info("  Oil:    0.05 lot | TP: $100.00 | Max SL: $35.00 ($0.70)   | BE: +$20 | Lock1: $35->$25 | Lock2: $60->$45")
     logger.info("  US30:   0.25 lot | TP: $100.00 | Max SL: $36.00 (144 pts) | BE: +$20 | Lock1: $35->$25 | Lock2: $60->$45")
@@ -1844,7 +1844,7 @@ if __name__ == "__main__":
         "• <b>Crude Oil (USOILm):</b> $100.00 TP | $35.00 SL ($0.70) | BE +$20 | Lock1 $35->$25 | Lock2 $60->$45 | <b>0.05 Lot</b>\n"
         "• <b>Dow Jones (US30m):</b> $100.00 TP | $36.00 SL (144 pts) | BE +$20 | Lock1 $35->$25 | Lock2 $60->$45 | <b>0.25 Lot</b>\n"
         "<b>Shadow Observation (6 Assets):</b> EURUSDm · USTECm (Nasdaq) · GBPUSDm · US500m (S&P 500) · GBPJPYm (Guppy) · DE30m (DAX) (paper mode)\n\n"
-        "<b>Yad Masri Institutional Architecture:</b>\n"
+        "<b>AlphaEdge Institutional Architecture:</b>\n"
         "• <b>Principle 3 (Approach Architecture):</b> Filters pre-zone compression vs. exhaustion arrival. Blocks breakout traps.\n"
         "• <b>Anti-Chase Wholesale Shield:</b> Declines late entries at candle tops; guarantees wholesale fill pricing.\n"
         "• <b>Solo Gold Focus:</b> Silver decoupled completely to eliminate correlated drag.\n"

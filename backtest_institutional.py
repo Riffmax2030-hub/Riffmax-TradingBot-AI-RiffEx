@@ -234,9 +234,8 @@ def run_simulation(symbol, days=30, use_m5_confirmation=True):
             if ut_signal == "SELL" and loc_pct < 35.0:
                 continue
 
-            # Session filter: strictly 8:00 AM to 8:00 PM EAT (Monday - Friday)
-            eat_hour = (curr_time.hour + 3) % 24
-            if curr_time.weekday() in (5, 6) or eat_hour < 8 or eat_hour >= 20:
+            # 24/5 Session (Monday through Friday, weekends closed)
+            if curr_time.weekday() in (5, 6):
                 continue
 
             # 3. M5 Pullback Turn Confirmation (if enabled)

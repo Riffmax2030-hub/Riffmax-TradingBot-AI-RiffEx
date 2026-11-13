@@ -311,7 +311,7 @@ class InstitutionalEngine:
 
     def check_approach_architecture(self, df_m5: pd.DataFrame, direction: str) -> dict:
         """
-        Yad Masri Principle 3: Approach Architecture & Pre-Zone Compression Filter
+        Institutional Approach Architecture Filter
         -------------------------------------------------------------------------
         How price arrives at an institutional support/resistance zone dictates whether
         the zone will hold or be smashed:
@@ -360,7 +360,7 @@ class InstitutionalEngine:
                 "atr": m5_atr,
                 "cluster_span": total_cluster_span,
                 "reason": (
-                    f"Yad Masri Principle 3 Alert: Pre-Zone Compression detected "
+                    f"Pre-Zone Compression detected "
                     f"(Avg Range {avg_bar_range:.2f} < 0.5x ATR {m5_atr:.2f}, Span {total_cluster_span:.2f}). "
                     f"Market balanced right at border — high risk of breakdown through zone."
                 )
@@ -386,7 +386,7 @@ class InstitutionalEngine:
         M5 Micro-Fractal Pullback Confirmation & Anti-Chase Shield:
         ---------------------------------------------------------
         1. Ensures entry occurs on the TURN of the micro pullback (rejection candle).
-        2. Anti-Chase Shield (Yad Masri Fractal Execution):
+        2. Anti-Chase Shield:
            If the candle closed too far into the move away from the sweep low/high
            (> max_chase_dist), entering now means buying the apex of the wick with poor R:R.
            Declines late entries to protect wholesale entry pricing.

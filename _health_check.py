@@ -58,43 +58,28 @@ except Exception as e:
 
 # ── 5. Session Filter Boundary Check (7:00 AM - 9:00 PM EAT) ──────────────────
 print()
-print("--- Session filter (05:00 - 23:00 EAT / Tuesday - Friday) ---")
+print("--- Session filter (24/5 Monday - Friday) ---")
 from institutional_trader import is_session_active
 from datetime import datetime, timezone, timedelta
 
 def sim_session(weekday, hour_eat):
-    # EAT is UTC+3
-    now_utc = datetime(2026, 9, 21 + weekday, hour_eat, 0, tzinfo=timezone.utc) - timedelta(hours=3)
-    now_eat = now_utc + timedelta(hours=3)
-    wd = now_eat.weekday()
-    he = now_eat.hour
-    if wd in (5, 6):
-        return False
-    if wd in (0, 4):  # Monday & Friday are strictly Observation & Structural Memory
-        return False
-    if he < 3 or he >= 23:
+    # 24/5 Session: Monday through Friday active, weekends (Sat=5, Sun=6) closed
+    if weekday in (5, 6):
         return False
     return True
 
 tests = [
-    (0, 4,  "Mon 04:00 EAT (observation)", False),
-    (0, 5,  "Mon 05:00 EAT (observation)", False),
-    (0, 8,  "Mon 08:00 EAT (observation)", False),
-    (0, 12, "Mon 12:00 EAT (observation)", False),
-    (0, 22, "Mon 22:00 EAT (observation)", False),
-    (0, 23, "Mon 23:00 EAT (overnight)  ", False),
-    (1, 2,  "Tue 02:00 EAT (pre-open)   ", False),
-    (1, 3,  "Tue 03:00 EAT (market open)", True),
-    (1, 5,  "Tue 05:00 EAT (early trade)", True),
-    (1, 7,  "Tue 07:00 EAT (early trade)", True),
-    (1, 8,  "Tue 08:00 EAT (active trade)", True),
-    (1, 12, "Tue 12:00 EAT (midday)     ", True),
+    (0, 4,  "Mon 04:00 EAT (active trade)", True),
+    (0, 5,  "Mon 05:00 EAT (active trade)", True),
+    (0, 12, "Mon 12:00 EAT (active trade)", True),
+    (1, 3,  "Tue 03:00 EAT (active trade)", True),
+    (1, 12, "Tue 12:00 EAT (active trade)", True),
+    (2, 15, "Wed 15:00 EAT (active trade)", True),
     (3, 14, "Thu 14:00 EAT (active trade)", True),
-    (4, 12, "Fri 12:00 EAT (observation)", False),
-    (4, 22, "Fri 22:00 EAT (observation)", False),
-    (4, 23, "Fri 23:00 EAT (cutoff)     ", False),
-    (5, 12, "Sat 12:00 EAT (weekend)    ", False),
-    (6, 12, "Sun 12:00 EAT (weekend)    ", False),
+    (4, 12, "Fri 12:00 EAT (active trade)", True),
+    (4, 22, "Fri 22:00 EAT (active trade)", True),
+    (5, 12, "Sat 12:00 EAT (weekend)     ", False),
+    (6, 12, "Sun 12:00 EAT (weekend)     ", False),
 ]
 all_session_ok = True
 for weekday, hour_eat, label, expected in tests:

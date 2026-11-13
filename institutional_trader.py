@@ -344,7 +344,7 @@ def send_trade_entry_broadcast(symbol, order_type, price, lot, sl, tp, catalyst_
         f"Stop Loss: <code>{sl_fmt}</code> (Risk Cap: -${calc_sl_usd:.2f} | {sl_dist:.{dp}f} pts)\n"
         f"Take Profit: <code>{tp_fmt}</code> (Target: +${calc_tp_usd:.2f} | {tp_dist:.{dp}f} pts)\n"
         f"Risk/Reward: <b>{rr_val:.2f} : 1</b>\n"
-        f"🏛 <b>Yad Masri Context:</b> {catalyst_desc}{loc_str}"
+        f"🏛 <b>Institutional Context:</b> {catalyst_desc}{loc_str}"
     )
     _tg_send(_TELEGRAM_PERSONAL, dm_msg)
     _tg_send(_TELEGRAM_CHANNEL, channel_msg)
@@ -416,16 +416,10 @@ def is_session_active(symbol=None):
     weekday = now_eat.weekday()  # Monday=0, Tuesday=1, ..., Friday=4, Saturday=5, Sunday=6
     hour_eat = now_eat.hour
 
-    # Closed on weekends (Saturday & Sunday)
+    # 24/5 Active Trading Window: Monday 00:00 EAT to Friday 23:55 EAT
+    # Friday and Monday trading gates completely removed by user directive.
+    # Closed strictly on weekends (Saturday & Sunday when forex/commodity markets are closed).
     if weekday in (5, 6):
-        return False
-
-    # 3-Day Institutional Window: Monday (0) and Friday (4) are strictly Observation & Structural Memory mode
-    if weekday in (0, 4):
-        return False
-
-    # Tuesday to Thursday: strictly 3:00 AM to 11:00 PM EAT (03:00 <= hour < 23:00)
-    if hour_eat < 3 or hour_eat >= 23:
         return False
 
     return True
@@ -1027,7 +1021,7 @@ def run_institutional_cycle():
             has_pos = len(positions) > 0 if positions else False
 
             sym_session_ok = is_session_active(symbol)
-            session_tag = "ACTIVE (3am-11pm EAT)" if sym_session_ok else "OBSERVATION (Mon/Fri/Night)"
+            session_tag = "ACTIVE (24/5)" if sym_session_ok else "CLOSED (Weekend)"
             state_str = f"POS({len(positions)})" if has_pos else (f"SETUP({setup.get('direction')})" if setup.get('valid') else "WAIT")
 
             logger.info(
